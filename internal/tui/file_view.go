@@ -100,6 +100,8 @@ func (m *Model) updateFile(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.reviewReturn = modeFile
 	case "O":
 		m.openPicker(modeFile)
+	case "e":
+		return m, launchEditor(fb.Path, fb.cursor+1)
 	case "/":
 		m.openSearchPrompt()
 		return m, nil
@@ -299,7 +301,7 @@ func (m *Model) fileStickyHeader() string {
 
 func (m *Model) viewFile() string {
 	help := lipgloss.NewStyle().Faint(true).Render(
-		"j/k move · g/G top/bot · v select · c comment · d delete · s review · / search · n/N next/prev · O open · q back",
+		"j/k · v · c · d · s · / search · n/N · O open · e edit · q back",
 	)
 	top := m.viewport.View()
 	if sticky := m.fileStickyHeader(); sticky != "" {

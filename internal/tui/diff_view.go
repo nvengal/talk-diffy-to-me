@@ -172,6 +172,10 @@ func (m *Model) updateDiff(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.openFileAtCursor()
 	case "O":
 		m.openPicker(modeDiff)
+	case "e":
+		if cmd := m.editFileAtCursor(); cmd != nil {
+			return m, cmd
+		}
 	case "/":
 		m.openSearchPrompt()
 		return m, nil
@@ -231,6 +235,36 @@ func (m *Model) openFileAtCursor() {
 		m.centerCursorInFileView()
 	}
 	m.mode = modeFile
+}
+
+// editFileAtCursor resolves the path + line under the cursor and returns
+// a command that launches $EDITOR on it. Returns nil if the cursor
+// isn't on a file row.
+func (m *Model) editFileAtCursor() tea.Cmd {
+	if len(m.rows) == 0 {
+		return nil
+	}
+	cur := m.rows[m.cursor]
+	if cur.fileIdx < 0 || cur.fileIdx >= len(m.diff.Files) {
+		return nil
+	}
+	f := m.diff.Files[cur.fileIdx]
+	line := 1
+	switch cur.kind {
+	case rowLine:
+		l := f.Hunks[cur.hunkIdx].Lines[cur.lineIdx]
+		switch {
+		case l.NewLine > 0:
+			line = l.NewLine
+		case l.OldLine > 0:
+			line = l.OldLine
+		}
+	case rowHunkHeader:
+		if h := f.Hunks[cur.hunkIdx]; h.NewStart > 0 {
+			line = h.NewStart
+		}
+	}
+	return launchEditor(f.DisplayPath(), line)
 }
 
 // centerCursorInDiffView scrolls the viewport so the diff-mode cursor
@@ -475,7 +509,7 @@ func (m *Model) stickyHeader() string {
 func (m *Model) viewDiff() string {
 	title := lipgloss.NewStyle().Bold(true).Render("talk-diffy")
 	help := lipgloss.NewStyle().Faint(true).Render(
-		"j/k · J/K hunk · v · c · d · s · / search · n/N · o file · O pick · r · q",
+		"j/k · v · c · d · s · / search · n/N · o file · O pick · e edit · r · q",
 	)
 	top := m.viewport.View()
 	if sticky := m.stickyHeader(); sticky != "" {
