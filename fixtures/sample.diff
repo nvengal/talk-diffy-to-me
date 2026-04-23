@@ -1,0 +1,44 @@
+diff --git a/greeting.go b/greeting.go
+index abc1234..def5678 100644
+--- a/greeting.go
++++ b/greeting.go
+@@ -1,8 +1,10 @@
+ package main
+
+ import "fmt"
+
+-func greet(name string) {
+-	fmt.Println("hello,", name)
++func greet(name string) error {
++	if name == "" {
++		return fmt.Errorf("empty name")
++	}
++	fmt.Println("hello,", name)
++	return nil
+ }
+diff --git a/math.go b/math.go
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/math.go
+@@ -0,0 +1,7 @@
++package main
++
++import "errors"
++
++func divide(a, b int) (int, error) {
++	if b == 0 {
++		return 0, errors.New("div by zero")
++	}
++	return a / b, nil
++}
+diff --git a/legacy.go b/legacy.go
+deleted file mode 100644
+index 2222222..0000000
+--- a/legacy.go
++++ /dev/null
+@@ -1,4 +0,0 @@
+-package main
+-
+-// unused helper
+-func oldThing() {}
