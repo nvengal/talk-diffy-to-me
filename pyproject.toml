@@ -1,0 +1,18 @@
+[project]
+name = "talk-diffy-to-me"
+version = "0.1.0"
+description = "TUI to review a jj diff and feed line-keyed comments into a Claude Code pane."
+requires-python = ">=3.13"
+dependencies = [
+    "textual>=0.85",
+]
+
+[project.scripts]
+talk-diffy = "talk_diffy_to_me.__main__:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/talk_diffy_to_me"]

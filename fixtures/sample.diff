@@ -1,0 +1,22 @@
+diff --git a/cmd/server/main.go b/cmd/server/main.go
+index 1111111..2222222 100644
+--- a/cmd/server/main.go
++++ b/cmd/server/main.go
+@@ -38,7 +38,8 @@ func run() error {
+ 	if cfg == nil {
+-		return errors.New("no config")
++		return nil, err
++		log.Fatal(err)
+ 	}
+ 	return serve(cfg)
+ }
+diff --git a/internal/pkg/util.go b/internal/pkg/util.go
+index 3333333..4444444 100644
+--- a/internal/pkg/util.go
++++ b/internal/pkg/util.go
+@@ -10,3 +10,6 @@ package util
+ func Noop() {}
++
++func Double(x int) int {
++	return x + x
++}
