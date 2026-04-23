@@ -99,6 +99,9 @@ func (m *Model) nextHunkStart(from, dir int) int {
 }
 
 func (m *Model) updateDiff(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m.searchPrompt {
+		return m.updateSearchInput(msg)
+	}
 	km, ok := msg.(tea.KeyMsg)
 	if !ok {
 		var cmd tea.Cmd
@@ -109,6 +112,12 @@ func (m *Model) updateDiff(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case "q", "ctrl+c":
 		m.quitting = true
 		return m, tea.Quit
+	case "esc":
+		if m.searchPattern != "" {
+			m.clearSearch()
+			m.renderDiffIntoViewport()
+		}
+		return m, nil
 	case "j", "down":
 		m.cursor = m.nextContent(m.cursor, +1)
 		m.renderDiffIntoViewport()
@@ -163,6 +172,15 @@ func (m *Model) updateDiff(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.openFileAtCursor()
 	case "O":
 		m.openPicker(modeDiff)
+	case "/":
+		m.openSearchPrompt()
+		return m, nil
+	case "n":
+		m.jumpSearchMatch(+1)
+		m.renderDiffIntoViewport()
+	case "N":
+		m.jumpSearchMatch(-1)
+		m.renderDiffIntoViewport()
 	case "r":
 		m.refresh()
 	default:
@@ -213,6 +231,18 @@ func (m *Model) openFileAtCursor() {
 		m.centerCursorInFileView()
 	}
 	m.mode = modeFile
+}
+
+// centerCursorInDiffView scrolls the viewport so the diff-mode cursor
+// sits as close to the vertical middle as possible, clamped to valid
+// offsets.
+func (m *Model) centerCursorInDiffView() {
+	h := m.viewport.Height
+	if h <= 0 {
+		return
+	}
+	maxOff := max(0, len(m.rows)-h)
+	m.viewport.SetYOffset(clamp(m.cursor-h/2, 0, maxOff))
 }
 
 // centerCursorInFileView scrolls the viewport so the file-mode cursor
@@ -337,7 +367,7 @@ func (m *Model) renderRow(i int, r row) string {
 		}
 		raw = styleHunkHeader.Render(hdr)
 	case rowLine:
-		raw = m.renderContentLine(r)
+		raw = m.renderContentLine(i, r)
 	}
 
 	if isCursor {
@@ -348,7 +378,7 @@ func (m *Model) renderRow(i int, r row) string {
 	return raw
 }
 
-func (m *Model) renderContentLine(r row) string {
+func (m *Model) renderContentLine(rowIdx int, r row) string {
 	l := m.diff.Files[r.fileIdx].Hunks[r.hunkIdx].Lines[r.lineIdx]
 
 	// comment marker
@@ -370,17 +400,25 @@ func (m *Model) renderContentLine(r row) string {
 	}
 	gutter := styleGutter.Render(fmt.Sprintf("%s %s │", oldNum, newNum))
 
-	var body string
-	prefix := string(l.Kind)
-	text := prefix + l.Text
+	var baseStyle lipgloss.Style
 	switch l.Kind {
 	case '+':
-		body = styleAdd.Render(text)
+		baseStyle = styleAdd
 	case '-':
-		body = styleDel.Render(text)
+		baseStyle = styleDel
 	default:
-		body = styleCtx.Render(text)
+		baseStyle = styleCtx
 	}
+	prefix := string(l.Kind)
+	// search matches are on l.Text only — render prefix separately so the
+	// match offsets still line up.
+	var textPart string
+	if ranges := m.searchByLine[rowIdx]; len(ranges) > 0 {
+		textPart = renderBodyWithMatches(l.Text, ranges, m.searchIdx, baseStyle)
+	} else {
+		textPart = baseStyle.Render(l.Text)
+	}
+	body := baseStyle.Render(prefix) + textPart
 
 	return marker + gutter + " " + body
 }
@@ -437,7 +475,7 @@ func (m *Model) stickyHeader() string {
 func (m *Model) viewDiff() string {
 	title := lipgloss.NewStyle().Bold(true).Render("talk-diffy")
 	help := lipgloss.NewStyle().Faint(true).Render(
-		"j/k move · J/K hunk · g/G top/bot · v select · c comment · enter edit · d delete · s review · o file · O pick · r refresh · q quit",
+		"j/k · J/K hunk · v · c · d · s · / search · n/N · o file · O pick · r · q",
 	)
 	top := m.viewport.View()
 	if sticky := m.stickyHeader(); sticky != "" {
@@ -448,10 +486,14 @@ func (m *Model) viewDiff() string {
 			top = sticky
 		}
 	}
-	status := m.statusLine()
-	footer := help
-	if status != "" {
-		footer = status + "  " + help
+	var footer string
+	switch {
+	case m.searchPrompt:
+		footer = m.searchInput.View()
+	case m.status != "":
+		footer = m.statusLine() + "  " + help
+	default:
+		footer = help
 	}
 	_ = title
 	return top + "\n" + footer

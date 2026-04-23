@@ -177,6 +177,7 @@ func (m *Model) openFile(path string) error {
 		cursor:    0,
 		visAnchor: -1,
 	}
+	m.clearSearch()
 	m.renderFileIntoViewport()
 	return nil
 }

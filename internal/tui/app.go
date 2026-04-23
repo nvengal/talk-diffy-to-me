@@ -233,6 +233,14 @@ type Model struct {
 	// open file
 	fileBuf *fileBuf
 
+	// search (file mode)
+	searchInput     textinput.Model
+	searchPrompt    bool // input open
+	searchPattern   string
+	searchMatches   []searchMatch
+	searchByLine    map[int][]searchRange
+	searchIdx       int // index into searchMatches; -1 when none
+
 	viewport viewport.Model
 	width    int
 	height   int
@@ -274,6 +282,12 @@ func newModel(d *diff.Diff, dryRun bool, loader func() (*diff.Diff, error)) *Mod
 	pi.CharLimit = 0
 	pi.Prompt = "› "
 	m.pickerInput = pi
+
+	si := textinput.New()
+	si.Prompt = "/"
+	si.CharLimit = 0
+	m.searchInput = si
+	m.searchIdx = -1
 
 	if startMode == modeFilePicker {
 		m.openPicker(-1) // -1 = quit on esc (no diff to return to)
@@ -497,6 +511,7 @@ func (m *Model) refresh() {
 		m.cursor = 0
 	}
 	m.visAnchor = -1
+	m.clearSearch()
 	m.renderDiffIntoViewport()
 	switch {
 	case len(m.comments) == 0:

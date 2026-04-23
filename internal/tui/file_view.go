@@ -10,6 +10,9 @@ import (
 )
 
 func (m *Model) updateFile(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m.searchPrompt {
+		return m.updateSearchInput(msg)
+	}
 	km, ok := msg.(tea.KeyMsg)
 	if !ok {
 		var cmd tea.Cmd
@@ -35,7 +38,14 @@ func (m *Model) updateFile(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case "ctrl+c":
 		m.quitting = true
 		return m, tea.Quit
-	case "q", "esc":
+	case "esc":
+		if m.searchPattern != "" {
+			m.clearSearch()
+			m.renderFileIntoViewport()
+			return m, nil
+		}
+		return m.leaveFileMode(false)
+	case "q":
 		return m.leaveFileMode(false)
 	case "j", "down":
 		if fb.cursor < last {
@@ -90,6 +100,15 @@ func (m *Model) updateFile(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.reviewReturn = modeFile
 	case "O":
 		m.openPicker(modeFile)
+	case "/":
+		m.openSearchPrompt()
+		return m, nil
+	case "n":
+		m.jumpSearchMatch(+1)
+		m.renderFileIntoViewport()
+	case "N":
+		m.jumpSearchMatch(-1)
+		m.renderFileIntoViewport()
 	case "r":
 		m.reloadFile()
 	default:
@@ -106,6 +125,9 @@ func (m *Model) leaveFileMode(keepFile bool) (tea.Model, tea.Cmd) {
 	if !keepFile {
 		m.fileBuf = nil
 	}
+	// search matches were keyed by file-line; clear to avoid stale hits
+	// in the diff view
+	m.clearSearch()
 	if m.diff != nil && len(m.diff.Files) > 0 {
 		m.mode = modeDiff
 		m.renderDiffIntoViewport()
@@ -133,6 +155,10 @@ func (m *Model) reloadFile() {
 		fb.cursor = max(0, len(lines)-1)
 	}
 	fb.visAnchor = -1
+	// re-run any active search against the new contents
+	if m.searchPattern != "" {
+		_ = m.runSearch(m.searchPattern)
+	}
 	anchored, orphans := 0, 0
 	for i := range m.comments {
 		c := &m.comments[i]
@@ -238,7 +264,12 @@ func (m *Model) renderFileLine(i int) string {
 	}
 
 	gutter := styleGutter.Render(fmt.Sprintf("%5d │", ln))
-	body := styleCtx.Render(text)
+	var body string
+	if ranges := m.searchByLine[i]; len(ranges) > 0 {
+		body = renderBodyWithMatches(text, ranges, m.searchIdx, styleCtx)
+	} else {
+		body = styleCtx.Render(text)
+	}
 	raw := marker + gutter + " " + body
 
 	if isCursor {
@@ -261,7 +292,7 @@ func (m *Model) fileStickyHeader() string {
 
 func (m *Model) viewFile() string {
 	help := lipgloss.NewStyle().Faint(true).Render(
-		"j/k move · g/G top/bot · v select · c comment · enter edit · d delete · s review · O open · r reload · q back",
+		"j/k move · g/G top/bot · v select · c comment · d delete · s review · / search · n/N next/prev · O open · q back",
 	)
 	top := m.viewport.View()
 	if sticky := m.fileStickyHeader(); sticky != "" {
@@ -272,10 +303,14 @@ func (m *Model) viewFile() string {
 			top = sticky
 		}
 	}
-	status := m.statusLine()
-	footer := help
-	if status != "" {
-		footer = status + "  " + help
+	var footer string
+	switch {
+	case m.searchPrompt:
+		footer = m.searchInput.View()
+	case m.status != "":
+		footer = m.statusLine() + "  " + help
+	default:
+		footer = help
 	}
 	return top + "\n" + footer
 }
