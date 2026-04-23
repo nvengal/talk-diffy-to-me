@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/nvengal/talk-diffy-to-me/internal/diff"
@@ -44,6 +45,23 @@ func main() {
 
 	paths := fs.Args()
 
+	if fixturePath == "" {
+		// Resolve any path filters against the user's original CWD before
+		// chdir, so jj still sees the files they meant.
+		for i, p := range paths {
+			abs, err := filepath.Abs(p)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(1)
+			}
+			paths[i] = abs
+		}
+		if err := chdirToWorkspaceRoot(); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+	}
+
 	loader := func() (*diff.Diff, error) {
 		src, err := loadSource(fixturePath, paths)
 		if err != nil {
@@ -69,6 +87,24 @@ func main() {
 		fmt.Fprintf(os.Stderr, "tui: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+// chdirToWorkspaceRoot moves into the jj workspace root so that paths
+// from `jj diff --git` (which are workspace-root-relative) resolve
+// correctly when talk-diffy is invoked from a subdirectory.
+func chdirToWorkspaceRoot() error {
+	out, err := exec.Command("jj", "workspace", "root").Output()
+	if err != nil {
+		return fmt.Errorf("jj workspace root: %w", err)
+	}
+	root := strings.TrimSpace(string(out))
+	if root == "" {
+		return nil
+	}
+	if err := os.Chdir(root); err != nil {
+		return fmt.Errorf("chdir %s: %w", root, err)
+	}
+	return nil
 }
 
 func loadSource(fixturePath string, paths []string) ([]byte, error) {
