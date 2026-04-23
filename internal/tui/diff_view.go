@@ -243,6 +243,10 @@ var (
 	styleCursor     = lipgloss.NewStyle().Reverse(true)
 	styleSelected   = lipgloss.NewStyle().Background(lipgloss.Color("237"))
 	styleMarker     = lipgloss.NewStyle().Foreground(lipgloss.Color("11")).Bold(true)
+	styleStickyBar  = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("14")).
+			Background(lipgloss.Color("237"))
 )
 
 func (m *Model) renderRow(i int, r row) string {
@@ -326,12 +330,61 @@ func padRight(s string, w int) string {
 	return s + strings.Repeat(" ", w-visLen)
 }
 
+// stickyHeader returns an overlay filename line to render on the first
+// visible viewport row, or "" if the real file header is already on-screen
+// (or there are no files).
+func (m *Model) stickyHeader() string {
+	if len(m.rows) == 0 || m.viewport.Height <= 0 {
+		return ""
+	}
+	yOff := m.viewport.YOffset
+	if yOff < 0 || yOff >= len(m.rows) {
+		return ""
+	}
+	// find the file the top visible row belongs to
+	fi := -1
+	for i := yOff; i >= 0; i-- {
+		r := m.rows[i]
+		if r.kind == rowBlank {
+			continue
+		}
+		fi = r.fileIdx
+		break
+	}
+	if fi < 0 {
+		return ""
+	}
+	// locate the file header row for that file
+	headerIdx := -1
+	for i, r := range m.rows {
+		if r.kind == rowFileHeader && r.fileIdx == fi {
+			headerIdx = i
+			break
+		}
+	}
+	if headerIdx < 0 || headerIdx >= yOff {
+		// real header is still visible (or at the very top)
+		return ""
+	}
+	f := m.diff.Files[fi]
+	text := fmt.Sprintf("── %s (%s)", f.DisplayPath(), f.Status)
+	return styleStickyBar.Render(padRight(text, m.width))
+}
+
 func (m *Model) viewDiff() string {
 	title := lipgloss.NewStyle().Bold(true).Render("talk-diffy")
 	help := lipgloss.NewStyle().Faint(true).Render(
 		"j/k move · J/K hunk · g/G top/bot · v select · c comment · enter edit · d delete · s review · r refresh · q quit",
 	)
 	top := m.viewport.View()
+	if sticky := m.stickyHeader(); sticky != "" {
+		lines := strings.SplitN(top, "\n", 2)
+		if len(lines) == 2 {
+			top = sticky + "\n" + lines[1]
+		} else {
+			top = sticky
+		}
+	}
 	status := m.statusLine()
 	footer := help
 	if status != "" {
