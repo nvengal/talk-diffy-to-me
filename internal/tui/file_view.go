@@ -145,12 +145,15 @@ func (m *Model) reloadFile() {
 	if fb == nil {
 		return
 	}
-	lines, err := readFileLines(fb.Path)
+	data, err := os.ReadFile(fb.Path)
 	if err != nil {
 		m.setStatus(fmt.Sprintf("reload: %v", err), true)
 		return
 	}
+	content := string(data)
+	lines := splitFileLines(content)
 	fb.Lines = lines
+	fb.highlighted = highlightFile(fb.Path, content)
 	if fb.cursor >= len(lines) {
 		fb.cursor = max(0, len(lines)-1)
 	}
@@ -264,10 +267,14 @@ func (m *Model) renderFileLine(i int) string {
 	}
 
 	gutter := styleGutter.Render(fmt.Sprintf("%5d │", ln))
+	ranges := m.searchByLine[i]
 	var body string
-	if ranges := m.searchByLine[i]; len(ranges) > 0 {
+	switch {
+	case fb.highlighted != nil && i < len(fb.highlighted):
+		body = renderSegmentsWithMatches(fb.highlighted[i], ranges, m.searchIdx)
+	case len(ranges) > 0:
 		body = renderBodyWithMatches(text, ranges, m.searchIdx, styleCtx)
-	} else {
+	default:
 		body = styleCtx.Render(text)
 	}
 	raw := marker + gutter + " " + body
@@ -315,10 +322,3 @@ func (m *Model) viewFile() string {
 	return top + "\n" + footer
 }
 
-func readFileLines(path string) ([]string, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	return splitFileLines(string(data)), nil
-}

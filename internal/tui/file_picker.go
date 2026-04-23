@@ -171,11 +171,13 @@ func (m *Model) openFile(path string) error {
 	if err != nil {
 		return err
 	}
+	content := string(data)
 	m.fileBuf = &fileBuf{
-		Path:      path,
-		Lines:     splitFileLines(string(data)),
-		cursor:    0,
-		visAnchor: -1,
+		Path:        path,
+		Lines:       splitFileLines(content),
+		highlighted: highlightFile(path, content),
+		cursor:      0,
+		visAnchor:   -1,
 	}
 	m.clearSearch()
 	m.renderFileIntoViewport()

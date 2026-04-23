@@ -179,6 +179,10 @@ type fileBuf struct {
 	Lines     []string
 	cursor    int // 0-based row index (== line-1)
 	visAnchor int
+
+	// highlighted[i] is the chroma-tokenised, pre-styled segments for
+	// Lines[i]. nil when no lexer matched; len may be 0 for blank lines.
+	highlighted [][]segment
 }
 
 // fileCommentTarget carries the selection saved when 'c' is pressed in
