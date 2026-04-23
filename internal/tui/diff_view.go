@@ -158,6 +158,11 @@ func (m *Model) updateDiff(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.mode = modeReview
 		m.reviewIdx = 0
+		m.reviewReturn = modeDiff
+	case "o":
+		m.openFileAtCursor()
+	case "O":
+		m.openPicker(modeDiff)
 	case "r":
 		m.refresh()
 	default:
@@ -167,6 +172,64 @@ func (m *Model) updateDiff(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 	return m, nil
+}
+
+// openFileAtCursor opens the file under the diff cursor, positioning the
+// file-view cursor at the line corresponding to the cursor row (new-side
+// preferred). Falls back to line 1 for file/hunk-header rows.
+func (m *Model) openFileAtCursor() {
+	if len(m.rows) == 0 {
+		return
+	}
+	cur := m.rows[m.cursor]
+	if cur.fileIdx < 0 || cur.fileIdx >= len(m.diff.Files) {
+		return
+	}
+	f := m.diff.Files[cur.fileIdx]
+	path := f.DisplayPath()
+
+	targetLine := 1
+	switch cur.kind {
+	case rowLine:
+		l := f.Hunks[cur.hunkIdx].Lines[cur.lineIdx]
+		if l.NewLine > 0 {
+			targetLine = l.NewLine
+		} else if l.OldLine > 0 {
+			targetLine = l.OldLine
+		}
+	case rowHunkHeader:
+		if h := f.Hunks[cur.hunkIdx]; h.NewStart > 0 {
+			targetLine = h.NewStart
+		}
+	}
+
+	if err := m.openFile(path); err != nil {
+		m.setStatus(fmt.Sprintf("open %s: %v", path, err), true)
+		return
+	}
+	if m.fileBuf != nil && len(m.fileBuf.Lines) > 0 {
+		m.fileBuf.cursor = clamp(targetLine-1, 0, len(m.fileBuf.Lines)-1)
+		m.renderFileIntoViewport()
+		m.centerCursorInFileView()
+	}
+	m.mode = modeFile
+}
+
+// centerCursorInFileView scrolls the viewport so the file-mode cursor
+// sits as close to the vertical middle as possible, clamped to valid
+// offsets.
+func (m *Model) centerCursorInFileView() {
+	fb := m.fileBuf
+	if fb == nil {
+		return
+	}
+	h := m.viewport.Height
+	if h <= 0 {
+		return
+	}
+	desired := fb.cursor - h/2
+	maxOff := max(0, len(fb.Lines)-h)
+	m.viewport.SetYOffset(clamp(desired, 0, maxOff))
 }
 
 func (m *Model) selectionHunk() (fi, hi, start, end int, ok bool) {
@@ -374,7 +437,7 @@ func (m *Model) stickyHeader() string {
 func (m *Model) viewDiff() string {
 	title := lipgloss.NewStyle().Bold(true).Render("talk-diffy")
 	help := lipgloss.NewStyle().Faint(true).Render(
-		"j/k move · J/K hunk · g/G top/bot · v select · c comment · enter edit · d delete · s review · r refresh · q quit",
+		"j/k move · J/K hunk · g/G top/bot · v select · c comment · enter edit · d delete · s review · o file · O pick · r refresh · q quit",
 	)
 	top := m.viewport.View()
 	if sticky := m.stickyHeader(); sticky != "" {

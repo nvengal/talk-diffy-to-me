@@ -16,7 +16,8 @@ func (m *Model) updateReview(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	switch km.String() {
 	case "esc", "q":
-		m.mode = modeDiff
+		m.mode = m.reviewExitMode()
+		m.rerenderForMode()
 		return m, nil
 	case "j", "down":
 		if m.reviewIdx < len(m.comments)-1 {
@@ -40,9 +41,9 @@ func (m *Model) updateReview(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.reviewIdx = len(m.comments) - 1
 			}
 			if len(m.comments) == 0 {
-				m.mode = modeDiff
+				m.mode = m.reviewExitMode()
 			}
-			m.renderDiffIntoViewport()
+			m.rerenderForMode()
 			if !m.statusErr {
 				m.setStatus("sent 1 comment", false)
 			}
@@ -58,8 +59,8 @@ func (m *Model) updateReview(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmd := m.sendPayload(payload)
 			m.comments = m.comments[:0]
 			m.reviewIdx = 0
-			m.mode = modeDiff
-			m.renderDiffIntoViewport()
+			m.mode = m.reviewExitMode()
+			m.rerenderForMode()
 			if !m.statusErr {
 				m.setStatus(fmt.Sprintf("sent %d comment(s)", len(all)), false)
 			}
@@ -78,10 +79,10 @@ func (m *Model) updateReview(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.reviewIdx >= len(m.comments) && m.reviewIdx > 0 {
 			m.reviewIdx = len(m.comments) - 1
 		}
-		m.renderDiffIntoViewport()
 		if len(m.comments) == 0 {
-			m.mode = modeDiff
+			m.mode = m.reviewExitMode()
 		}
+		m.rerenderForMode()
 	}
 	return m, nil
 }
@@ -121,6 +122,30 @@ func (m *Model) viewReview() string {
 		BorderForeground(lipgloss.Color("137")).
 		Padding(0, 1).
 		Render(strings.Join(rows, "\n"))
+}
+
+// reviewExitMode returns the mode to switch to when leaving review — the
+// caller's mode if it's still valid, otherwise fall back to whatever view
+// has content, or the picker as a last resort.
+func (m *Model) reviewExitMode() mode {
+	switch m.reviewReturn {
+	case modeFile:
+		if m.fileBuf != nil {
+			return modeFile
+		}
+	case modeDiff:
+		if m.diff != nil && len(m.diff.Files) > 0 {
+			return modeDiff
+		}
+	}
+	if m.diff != nil && len(m.diff.Files) > 0 {
+		return modeDiff
+	}
+	if m.fileBuf != nil {
+		return modeFile
+	}
+	m.openPicker(-1)
+	return modeFilePicker
 }
 
 func commentListLabel(_ *Model, c Comment) string {

@@ -31,9 +31,19 @@ func writeSection(b *strings.Builder, c Comment) {
 	}
 	fmt.Fprintf(b, "\n## %s:%s\n\n", c.Path, span)
 	b.WriteString(c.Body)
-	b.WriteString("\n\n```diff\n")
-	for _, l := range c.Snapshot {
-		b.WriteString(string(l.Kind) + l.Text + "\n")
+	b.WriteString("\n\n")
+	switch c.Kind {
+	case CommentFile:
+		b.WriteString("```\n")
+		for _, l := range c.Snapshot {
+			b.WriteString(l.Text + "\n")
+		}
+		b.WriteString("```\n")
+	default:
+		b.WriteString("```diff\n")
+		for _, l := range c.Snapshot {
+			b.WriteString(string(l.Kind) + l.Text + "\n")
+		}
+		b.WriteString("```\n")
 	}
-	b.WriteString("```\n")
 }

@@ -23,6 +23,7 @@ func (m *Model) openCommentModal() tea.Cmd {
 	snap := h.Lines[key.StartLine : key.EndLine+1]
 
 	m.targetKey = key
+	m.commentIsFile = false
 	m.editingIdx = -1
 	m.textarea.Reset()
 	m.previewLines = renderPreviewLines(snap)
@@ -37,6 +38,36 @@ func (m *Model) openCommentModal() tea.Cmd {
 	m.commentReturn = modeDiff
 	m.mode = modeComment
 	m.visAnchor = -1
+	return nil
+}
+
+// openFileCommentModal starts a new comment in file mode using the open
+// file's current selection (or cursor line).
+func (m *Model) openFileCommentModal() tea.Cmd {
+	fb := m.fileBuf
+	if fb == nil || len(fb.Lines) == 0 {
+		return nil
+	}
+	s, e, ok := m.fileSelection()
+	if !ok {
+		return nil
+	}
+	start, end := s+1, e+1 // to 1-based
+	snap := make([]diff.Line, 0, end-start+1)
+	for ln := start; ln <= end; ln++ {
+		snap = append(snap, diff.Line{Kind: ' ', Text: fb.Lines[ln-1], NewLine: ln})
+	}
+
+	m.targetFile = fileCommentTarget{Path: fb.Path, Start: start, End: end}
+	m.commentIsFile = true
+	m.editingIdx = -1
+	m.textarea.Reset()
+	m.previewLines = renderPreviewLines(snap)
+	m.targetLabel = formatCommentLabel(fb.Path, start, end, end-start+1, false)
+	m.textarea.Focus()
+	m.commentReturn = modeFile
+	m.mode = modeComment
+	fb.visAnchor = -1
 	return nil
 }
 
@@ -68,7 +99,7 @@ func (m *Model) updateComment(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case "esc":
 		m.textarea.Blur()
 		m.mode = m.commentReturn
-		m.renderDiffIntoViewport()
+		m.rerenderForMode()
 		return m, nil
 	case "enter":
 		body := strings.TrimRight(m.textarea.Value(), "\n")
@@ -78,13 +109,20 @@ func (m *Model) updateComment(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.editingIdx >= 0 {
 			m.comments[m.editingIdx].Body = body
+		} else if m.commentIsFile {
+			t := m.targetFile
+			var lines []string
+			if m.fileBuf != nil && m.fileBuf.Path == t.Path {
+				lines = m.fileBuf.Lines
+			}
+			m.comments = append(m.comments, buildFileComment(t.Path, t.Start, t.End, lines, body))
 		} else {
 			m.comments = append(m.comments, buildComment(m.diff, m.targetKey, body))
 		}
 		m.textarea.Blur()
 		m.mode = m.commentReturn
 		m.setStatus("comment saved", false)
-		m.renderDiffIntoViewport()
+		m.rerenderForMode()
 		return m, nil
 	}
 	var cmd tea.Cmd

@@ -64,10 +64,6 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	if len(d.Files) == 0 {
-		fmt.Fprintln(os.Stderr, "empty diff, nothing to review")
-		os.Exit(0)
-	}
 
 	if err := tui.Run(d, dryRun, loader); err != nil {
 		fmt.Fprintf(os.Stderr, "tui: %v\n", err)
