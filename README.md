@@ -17,13 +17,13 @@ comment on arbitrary lines, search (`/`), and edit in `$EDITOR` (`e`).
 - [`zellij`](https://zellij.dev) on `PATH`
 - Run from inside a zellij pane, in a `jj` working copy
 
-An empty diff is fine — talk-diffy opens the file picker on launch so you
+An empty diff is fine — diffy opens the file picker on launch so you
 can still leave comments on arbitrary files.
 
 ## Install
 
 ```
-go install github.com/nvengal/talk-diffy-to-me/cmd/talk-diffy@latest
+go install github.com/nvengal/talk-diffy-to-me/cmd/diffy@latest
 ```
 
 Or build from a checkout:
@@ -31,23 +31,23 @@ Or build from a checkout:
 ```
 git clone https://github.com/nvengal/talk-diffy-to-me
 cd talk-diffy-to-me
-go build -o talk-diffy ./cmd/talk-diffy
+go build -o diffy ./cmd/diffy
 ```
 
 ## Usage
 
 Open a zellij tab with (at least) two panes: one running `claude` and one
-where you'll run `talk-diffy`. From the talk-diffy pane:
+where you'll run `diffy`. From the diffy pane:
 
 ```
-talk-diffy
+diffy
 ```
 
 Pass paths to narrow the diff (like `git diff path/...`):
 
 ```
-talk-diffy internal/tui
-talk-diffy internal/tui/app.go cmd/talk-diffy/main.go
+diffy internal/tui
+diffy internal/tui/app.go cmd/diffy/main.go
 ```
 
 Paths are forwarded to `jj diff --git -- <paths>`; an exact file match
@@ -128,7 +128,7 @@ the modal so you can edit it.
 | `d`             | delete the focused comment     |
 | `esc`, `q`      | back to the diff               |
 
-On the first send, talk-diffy scans `zellij action list-panes` for
+On the first send, diffy scans `zellij action list-panes` for
 candidates in the current tab, auto-picks the one whose title or command
 contains `claude` (case-insensitive) if there's exactly one, and
 otherwise opens a picker. The resolved pane id is cached for the rest of
@@ -189,7 +189,7 @@ Hidden from `--help`:
 Example:
 
 ```
-talk-diffy --fixture fixtures/sample.diff --dry-run
+diffy --fixture fixtures/sample.diff --dry-run
 ```
 
 ## Scope

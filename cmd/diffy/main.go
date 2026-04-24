@@ -15,7 +15,7 @@ import (
 )
 
 func main() {
-	fs := flag.NewFlagSet("talk-diffy", flag.ContinueOnError)
+	fs := flag.NewFlagSet("diffy", flag.ContinueOnError)
 	fs.SetOutput(io.Discard) // we print usage ourselves
 
 	var fixturePath string
@@ -24,7 +24,7 @@ func main() {
 	fs.BoolVar(&dryRun, "dry-run", false, "")
 
 	fs.Usage = func() {
-		fmt.Fprintln(os.Stderr, "Usage: talk-diffy [paths...]")
+		fmt.Fprintln(os.Stderr, "Usage: diffy [paths...]")
 		fmt.Fprintln(os.Stderr)
 		fmt.Fprintln(os.Stderr, "Run inside a zellij pane. Reads `jj diff --git` for the current")
 		fmt.Fprintln(os.Stderr, "revision, opens a TUI to leave comments, and ships them into a")
@@ -91,7 +91,7 @@ func main() {
 
 // chdirToWorkspaceRoot moves into the jj workspace root so that paths
 // from `jj diff --git` (which are workspace-root-relative) resolve
-// correctly when talk-diffy is invoked from a subdirectory.
+// correctly when diffy is invoked from a subdirectory.
 func chdirToWorkspaceRoot() error {
 	out, err := exec.Command("jj", "workspace", "root").Output()
 	if err != nil {

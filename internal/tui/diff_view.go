@@ -507,7 +507,7 @@ func (m *Model) stickyHeader() string {
 }
 
 func (m *Model) viewDiff() string {
-	title := lipgloss.NewStyle().Bold(true).Render("talk-diffy")
+	title := lipgloss.NewStyle().Bold(true).Render("diffy")
 	help := lipgloss.NewStyle().Faint(true).Render(
 		"j/k · v · c · d · s · / search · n/N · o file · O pick · e edit · r · q",
 	)

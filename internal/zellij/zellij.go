@@ -56,7 +56,7 @@ func ownPaneID() (int, bool) {
 	return n, true
 }
 
-// Candidates returns other panes in the same tab as talk-diffy, skipping
+// Candidates returns other panes in the same tab as diffy, skipping
 // plugin panes and non-selectable panes.
 func Candidates() ([]Pane, error) {
 	panes, err := ListPanes()
