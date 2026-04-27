@@ -275,8 +275,12 @@ func (m *Model) centerCursorInDiffView() {
 	if h <= 0 {
 		return
 	}
-	maxOff := max(0, len(m.rows)-h)
-	m.viewport.SetYOffset(clamp(m.cursor-h/2, 0, maxOff))
+	visStart := 0
+	if m.cursor >= 0 && m.cursor < len(m.rowOffsets) {
+		visStart = m.rowOffsets[m.cursor]
+	}
+	maxOff := max(0, m.totalVis-h)
+	m.viewport.SetYOffset(clamp(visStart-h/2, 0, maxOff))
 }
 
 // centerCursorInFileView scrolls the viewport so the file-mode cursor
@@ -291,8 +295,12 @@ func (m *Model) centerCursorInFileView() {
 	if h <= 0 {
 		return
 	}
-	desired := fb.cursor - h/2
-	maxOff := max(0, len(fb.Lines)-h)
+	visStart := 0
+	if fb.cursor >= 0 && fb.cursor < len(fb.rowOffsets) {
+		visStart = fb.rowOffsets[fb.cursor]
+	}
+	desired := visStart - h/2
+	maxOff := max(0, fb.totalVis-h)
 	m.viewport.SetYOffset(clamp(desired, 0, maxOff))
 }
 
@@ -344,19 +352,38 @@ func (m *Model) renderDiffIntoViewport() {
 		return
 	}
 	var b strings.Builder
+	if cap(m.rowOffsets) >= len(m.rows) {
+		m.rowOffsets = m.rowOffsets[:len(m.rows)]
+	} else {
+		m.rowOffsets = make([]int, len(m.rows))
+	}
+	vis := 0
 	for i, r := range m.rows {
+		m.rowOffsets[i] = vis
 		line := m.renderRow(i, r)
 		b.WriteString(line)
 		b.WriteByte('\n')
+		vis += visualLineCount(line)
 	}
+	m.totalVis = vis
 	m.viewport.SetContent(b.String())
 
-	// keep cursor visible
+	// keep cursor visible (in visual-line space)
 	h := m.viewport.Height
-	if m.cursor < m.viewport.YOffset {
-		m.viewport.SetYOffset(m.cursor)
-	} else if m.cursor >= m.viewport.YOffset+h {
-		m.viewport.SetYOffset(m.cursor - h + 1)
+	visStart := 0
+	visEnd := 0
+	if m.cursor >= 0 && m.cursor < len(m.rowOffsets) {
+		visStart = m.rowOffsets[m.cursor]
+		if m.cursor+1 < len(m.rowOffsets) {
+			visEnd = m.rowOffsets[m.cursor+1] - 1
+		} else {
+			visEnd = m.totalVis - 1
+		}
+	}
+	if visStart < m.viewport.YOffset {
+		m.viewport.SetYOffset(visStart)
+	} else if visEnd >= m.viewport.YOffset+h {
+		m.viewport.SetYOffset(visEnd - h + 1)
 	}
 }
 
@@ -392,24 +419,42 @@ func (m *Model) renderRow(i int, r row) string {
 		raw = ""
 	case rowFileHeader:
 		f := m.diff.Files[r.fileIdx]
-		raw = styleFileHeader.Render(fmt.Sprintf("── %s (%s)", f.DisplayPath(), f.Status))
+		raw = wrapStyledHeader(fmt.Sprintf("── %s (%s)", f.DisplayPath(), f.Status), styleFileHeader, m.width, "")
 	case rowHunkHeader:
 		h := m.diff.Files[r.fileIdx].Hunks[r.hunkIdx]
 		hdr := fmt.Sprintf("@@ -%d,%d +%d,%d @@", h.OldStart, h.OldCount, h.NewStart, h.NewCount)
 		if h.Section != "" {
 			hdr += " " + h.Section
 		}
-		raw = styleHunkHeader.Render(hdr)
+		raw = wrapStyledHeader(hdr, styleHunkHeader, m.width, "")
 	case rowLine:
 		raw = m.renderContentLine(i, r)
 	}
 
 	if isCursor {
-		raw = styleCursor.Render(padRight(raw, m.width))
+		raw = styleFirstLine(raw, styleCursor, m.width)
 	} else if isSelected {
-		raw = styleSelected.Render(padRight(raw, m.width))
+		raw = styleFirstLine(raw, styleSelected, m.width)
 	}
 	return raw
+}
+
+// wrapStyledHeader wraps plain text at width, applying style to each
+// chunk and prepending indent on continuation rows.
+func wrapStyledHeader(text string, style lipgloss.Style, width int, indent string) string {
+	if width <= 0 {
+		return style.Render(text)
+	}
+	chunks := wrapByRunes(text, width)
+	parts := make([]string, len(chunks))
+	for i, ch := range chunks {
+		if i == 0 {
+			parts[i] = style.Render(ch.text)
+		} else {
+			parts[i] = indent + style.Render(ch.text)
+		}
+	}
+	return strings.Join(parts, "\n")
 }
 
 func (m *Model) renderContentLine(rowIdx int, r row) string {
@@ -443,18 +488,41 @@ func (m *Model) renderContentLine(rowIdx int, r row) string {
 	default:
 		baseStyle = styleCtx
 	}
-	prefix := string(l.Kind)
-	// search matches are on l.Text only — render prefix separately so the
-	// match offsets still line up.
-	var textPart string
-	if ranges := m.searchByLine[rowIdx]; len(ranges) > 0 {
-		textPart = renderBodyWithMatches(l.Text, ranges, m.searchIdx, baseStyle)
-	} else {
-		textPart = baseStyle.Render(l.Text)
-	}
-	body := baseStyle.Render(prefix) + textPart
 
-	return marker + gutter + " " + body
+	prefix := marker + gutter + " "
+	prefixWidth := lipgloss.Width(prefix)
+	// continuation rows align the body under the kind char on the first
+	// row, so they get the prefix width plus one space (in place of the
+	// kind char).
+	contIndent := strings.Repeat(" ", prefixWidth+1)
+	avail := m.width - prefixWidth - 1
+	if avail < 1 {
+		// fall back to no-wrap if the viewport is impossibly narrow
+		body := baseStyle.Render(string(l.Kind) + l.Text)
+		return prefix + body
+	}
+
+	chunks := wrapByRunes(l.Text, avail)
+	ranges := m.searchByLine[rowIdx]
+
+	parts := make([]string, len(chunks))
+	for i, ch := range chunks {
+		var textPart string
+		local := sliceRanges(ranges, ch.byteStart, ch.byteStart+len(ch.text))
+		if len(local) > 0 {
+			textPart = renderBodyWithMatches(ch.text, local, m.searchIdx, baseStyle)
+		} else {
+			textPart = baseStyle.Render(ch.text)
+		}
+		var head string
+		if i == 0 {
+			head = prefix + baseStyle.Render(string(l.Kind))
+		} else {
+			head = contIndent
+		}
+		parts[i] = head + textPart
+	}
+	return strings.Join(parts, "\n")
 }
 
 func padRight(s string, w int) string {
@@ -473,12 +541,13 @@ func (m *Model) stickyHeader() string {
 		return ""
 	}
 	yOff := m.viewport.YOffset
-	if yOff < 0 || yOff >= len(m.rows) {
+	if yOff < 0 || yOff >= m.totalVis {
 		return ""
 	}
+	topRow := m.rowAtVisOffset(yOff)
 	// find the file the top visible row belongs to
 	fi := -1
-	for i := yOff; i >= 0; i-- {
+	for i := topRow; i >= 0; i-- {
 		r := m.rows[i]
 		if r.kind == rowBlank {
 			continue
@@ -497,13 +566,31 @@ func (m *Model) stickyHeader() string {
 			break
 		}
 	}
-	if headerIdx < 0 || headerIdx >= yOff {
+	if headerIdx < 0 || headerIdx >= len(m.rowOffsets) || m.rowOffsets[headerIdx] >= yOff {
 		// real header is still visible (or at the very top)
 		return ""
 	}
 	f := m.diff.Files[fi]
 	text := fmt.Sprintf("── %s (%s)", f.DisplayPath(), f.Status)
 	return styleStickyBar.Render(padRight(text, m.width))
+}
+
+// rowAtVisOffset returns the row whose visual range covers the given
+// visual offset. Falls back to 0 when out of range.
+func (m *Model) rowAtVisOffset(yOff int) int {
+	if len(m.rowOffsets) == 0 {
+		return 0
+	}
+	lo, hi := 0, len(m.rowOffsets)-1
+	for lo < hi {
+		mid := (lo + hi + 1) / 2
+		if m.rowOffsets[mid] <= yOff {
+			lo = mid
+		} else {
+			hi = mid - 1
+		}
+	}
+	return lo
 }
 
 func (m *Model) viewDiff() string {

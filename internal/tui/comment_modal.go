@@ -26,7 +26,7 @@ func (m *Model) openCommentModal() tea.Cmd {
 	m.commentIsFile = false
 	m.editingIdx = -1
 	m.textarea.Reset()
-	m.previewLines = renderPreviewLines(snap)
+	m.previewSnap = append([]diff.Line(nil), snap...)
 	m.targetLabel = formatCommentLabel(
 		f.DisplayPath(),
 		displayLineNum(h.Lines[key.StartLine]),
@@ -62,7 +62,7 @@ func (m *Model) openFileCommentModal() tea.Cmd {
 	m.commentIsFile = true
 	m.editingIdx = -1
 	m.textarea.Reset()
-	m.previewLines = renderPreviewLines(snap)
+	m.previewSnap = append([]diff.Line(nil), snap...)
 	m.targetLabel = formatCommentLabel(fb.Path, start, end, end-start+1, false)
 	m.textarea.Focus()
 	m.commentReturn = modeFile
@@ -80,7 +80,7 @@ func (m *Model) openCommentEdit(idx int, returnMode mode) {
 	m.editingIdx = idx
 	m.textarea.Reset()
 	m.textarea.SetValue(c.Body)
-	m.previewLines = renderPreviewLines(c.Snapshot)
+	m.previewSnap = append([]diff.Line(nil), c.Snapshot...)
 	m.targetLabel = formatCommentLabel(c.Path, c.DisplayStart, c.DisplayEnd, len(c.Snapshot), c.Orphan)
 	m.textarea.Focus()
 	m.commentReturn = returnMode
@@ -142,7 +142,7 @@ func (m *Model) viewComment() string {
 	sections := []string{
 		title,
 		divider,
-		m.previewLines,
+		renderPreviewLines(m.previewSnap, innerW),
 		divider,
 		m.textarea.View(),
 		hint,
@@ -169,7 +169,7 @@ func formatCommentLabel(path string, start, end, n int, orphan bool) string {
 	return fmt.Sprintf("%sComment on %s:%d-%d (%d lines)", prefix, path, start, end, n)
 }
 
-func renderPreviewLines(lines []diff.Line) string {
+func renderPreviewLines(lines []diff.Line, width int) string {
 	var b strings.Builder
 	for _, l := range lines {
 		oldNum := "    "
@@ -181,16 +181,33 @@ func renderPreviewLines(lines []diff.Line) string {
 			newNum = fmt.Sprintf("%4d", l.NewLine)
 		}
 		gutter := styleGutter.Render(fmt.Sprintf("%s %s │", oldNum, newNum))
-		body := string(l.Kind) + l.Text
+		var baseStyle lipgloss.Style
 		switch l.Kind {
 		case '+':
-			body = styleAdd.Render(body)
+			baseStyle = styleAdd
 		case '-':
-			body = styleDel.Render(body)
+			baseStyle = styleDel
 		default:
-			body = styleCtx.Render(body)
+			baseStyle = styleCtx
 		}
-		b.WriteString(gutter + " " + body + "\n")
+
+		prefix := gutter + " "
+		prefixWidth := lipgloss.Width(prefix)
+		avail := width - prefixWidth - 1
+		if avail < 1 || width <= 0 {
+			b.WriteString(prefix + baseStyle.Render(string(l.Kind)+l.Text) + "\n")
+			continue
+		}
+		contIndent := strings.Repeat(" ", prefixWidth+1)
+		chunks := wrapByRunes(l.Text, avail)
+		for i, ch := range chunks {
+			if i == 0 {
+				b.WriteString(prefix + baseStyle.Render(string(l.Kind)) + baseStyle.Render(ch.text))
+			} else {
+				b.WriteString(contIndent + baseStyle.Render(ch.text))
+			}
+			b.WriteByte('\n')
+		}
 	}
 	return strings.TrimRight(b.String(), "\n")
 }

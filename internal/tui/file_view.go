@@ -231,18 +231,37 @@ func (m *Model) renderFileIntoViewport() {
 		return
 	}
 	var b strings.Builder
+	if cap(fb.rowOffsets) >= len(fb.Lines) {
+		fb.rowOffsets = fb.rowOffsets[:len(fb.Lines)]
+	} else {
+		fb.rowOffsets = make([]int, len(fb.Lines))
+	}
+	vis := 0
 	for i := range fb.Lines {
+		fb.rowOffsets[i] = vis
 		line := m.renderFileLine(i)
 		b.WriteString(line)
 		b.WriteByte('\n')
+		vis += visualLineCount(line)
 	}
+	fb.totalVis = vis
 	m.viewport.SetContent(b.String())
 
 	h := m.viewport.Height
-	if fb.cursor < m.viewport.YOffset {
-		m.viewport.SetYOffset(fb.cursor)
-	} else if fb.cursor >= m.viewport.YOffset+h {
-		m.viewport.SetYOffset(fb.cursor - h + 1)
+	visStart := 0
+	visEnd := 0
+	if fb.cursor >= 0 && fb.cursor < len(fb.rowOffsets) {
+		visStart = fb.rowOffsets[fb.cursor]
+		if fb.cursor+1 < len(fb.rowOffsets) {
+			visEnd = fb.rowOffsets[fb.cursor+1] - 1
+		} else {
+			visEnd = fb.totalVis - 1
+		}
+	}
+	if visStart < m.viewport.YOffset {
+		m.viewport.SetYOffset(visStart)
+	} else if visEnd >= m.viewport.YOffset+h {
+		m.viewport.SetYOffset(visEnd - h + 1)
 	}
 }
 
@@ -269,22 +288,56 @@ func (m *Model) renderFileLine(i int) string {
 	}
 
 	gutter := styleGutter.Render(fmt.Sprintf("%5d │", ln))
+	prefix := marker + gutter + " "
+	prefixWidth := lipgloss.Width(prefix)
+	contIndent := strings.Repeat(" ", prefixWidth)
+	avail := m.width - prefixWidth
 	ranges := m.searchByLine[i]
-	var body string
-	switch {
-	case fb.highlighted != nil && i < len(fb.highlighted):
-		body = renderSegmentsWithMatches(fb.highlighted[i], ranges, m.searchIdx)
-	case len(ranges) > 0:
-		body = renderBodyWithMatches(text, ranges, m.searchIdx, styleCtx)
-	default:
-		body = styleCtx.Render(text)
+	var segs []segment
+	if fb.highlighted != nil && i < len(fb.highlighted) {
+		segs = fb.highlighted[i]
 	}
-	raw := marker + gutter + " " + body
+
+	var raw string
+	if avail < 1 {
+		var body string
+		switch {
+		case segs != nil:
+			body = renderSegmentsWithMatches(segs, ranges, m.searchIdx)
+		case len(ranges) > 0:
+			body = renderBodyWithMatches(text, ranges, m.searchIdx, styleCtx)
+		default:
+			body = styleCtx.Render(text)
+		}
+		raw = prefix + body
+	} else {
+		chunks := wrapByRunes(text, avail)
+		parts := make([]string, len(chunks))
+		for ci, ch := range chunks {
+			localRanges := sliceRanges(ranges, ch.byteStart, ch.byteStart+len(ch.text))
+			var body string
+			switch {
+			case segs != nil:
+				localSegs := sliceSegments(segs, ch.byteStart, ch.byteStart+len(ch.text))
+				body = renderSegmentsWithMatches(localSegs, localRanges, m.searchIdx)
+			case len(localRanges) > 0:
+				body = renderBodyWithMatches(ch.text, localRanges, m.searchIdx, styleCtx)
+			default:
+				body = styleCtx.Render(ch.text)
+			}
+			if ci == 0 {
+				parts[ci] = prefix + body
+			} else {
+				parts[ci] = contIndent + body
+			}
+		}
+		raw = strings.Join(parts, "\n")
+	}
 
 	if isCursor {
-		raw = styleCursor.Render(padRight(raw, m.width))
+		raw = styleFirstLine(raw, styleCursor, m.width)
 	} else if isSelected {
-		raw = styleSelected.Render(padRight(raw, m.width))
+		raw = styleFirstLine(raw, styleSelected, m.width)
 	}
 	return raw
 }

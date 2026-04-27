@@ -183,6 +183,9 @@ type fileBuf struct {
 	// highlighted[i] is the chroma-tokenised, pre-styled segments for
 	// Lines[i]. nil when no lexer matched; len may be 0 for blank lines.
 	highlighted [][]segment
+
+	rowOffsets []int // visual-line offset of each file line after wrapping
+	totalVis   int
 }
 
 // fileCommentTarget carries the selection saved when 'c' is pressed in
@@ -201,9 +204,11 @@ type Model struct {
 
 	mode mode
 
-	rows      []row
-	cursor    int
-	visAnchor int // -1 when not in visual mode
+	rows       []row
+	rowOffsets []int // visual-line offset of each row in the rendered viewport
+	totalVis   int   // total visual lines rendered (sum of rows after wrap)
+	cursor     int
+	visAnchor  int // -1 when not in visual mode
 
 	comments []Comment
 
@@ -224,7 +229,7 @@ type Model struct {
 	targetFile      fileCommentTarget // used when editingIdx<0 and returning to modeFile
 	targetLabel     string
 	textarea        textarea.Model
-	previewLines    string
+	previewSnap     []diff.Line
 	commentReturn   mode // where to go after comment modal closes
 	commentIsFile   bool // true when saving should create a file comment
 
@@ -332,7 +337,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.viewport.Width = msg.Width
 		m.viewport.Height = max(1, msg.Height-2) // leave room for status
-		m.textarea.SetWidth(clamp(msg.Width-12, 40, 80))
+		m.textarea.SetWidth(max(40, msg.Width-12))
 		m.renderDiffIntoViewport()
 		return m, nil
 	}
