@@ -53,6 +53,37 @@ diffy internal/tui/app.go cmd/diffy/main.go
 Paths are forwarded to `jj diff --git -- <paths>`; an exact file match
 or a directory prefix will do.
 
+### Reviewing against another ref (`--from`)
+
+Pass `--from <ref>` to review the diff against a git ref instead of
+the current jj revision. Useful for PR-style review:
+
+```
+diffy --from main         # whole branch vs main
+diffy --from HEAD^        # just the last commit
+diffy --from origin/main  # remote-tracking ref
+diffy --from main@origin  # jj revset (resolved via jj first)
+```
+
+Under the hood diffy runs `git diff <ref>...HEAD` — the 3-dot form,
+so git itself uses the merge-base of `<ref>` and `HEAD` as the "from"
+side. Unrelated upstream commits don't show up as deletions.
+Uncommitted working-tree edits aren't included; commit (or stash)
+first if you want them in the review.
+
+`<ref>` can be either a git ref (`main`, `HEAD^`, `origin/main`, a
+commit hash) or a jj revset. Anything containing `@` is treated as a
+jj revset and resolved to a commit ID via `jj log` before being handed
+to git — so `main@origin`, `@-`, change IDs, etc. all work. Plain git
+refs skip jj entirely.
+
+Refresh (`r`) re-runs the diff, so it picks up new commits and ref
+movement. The file view (`o`/`O`) reads from the working copy as
+usual.
+
+`--from` cannot be combined with `--fixture`. Path arguments still
+filter (exact match or directory prefix).
+
 ### Diff view
 
 | key      | action                                                    |
@@ -140,7 +171,14 @@ Every send is prefixed with:
 
 ```
 The following are review comments. Respond to questions within this conversation (not in code comments). Make requested changes.
+
+Diff from: <ref>
 ```
+
+The `Diff from:` line is the "from" side of the diff — the ref passed
+via `--from` (verbatim, jj or git), or `@-` in default jj mode (the
+parent of the working-copy revision). The "to" side is the working
+state (HEAD / `@`).
 
 Followed by one `## path:lines` section per comment, with the comment
 body, then a fenced block showing the selected lines. Diff-anchored
@@ -199,5 +237,5 @@ diffy --fixture fixtures/sample.diff --dry-run
   commenting (with fuzzy picker, search, syntax highlighting, and
   `$EDITOR` integration), review screen, paste-injection into a zellij
   pane.
-- Out: chat UI, session state, persistence across runs, non-jj diff
-  sources, non-zellij multiplexers.
+- Out: chat UI, session state, persistence across runs, non-zellij
+  multiplexers.

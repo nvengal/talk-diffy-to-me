@@ -34,7 +34,7 @@ func (m *Model) updateReview(msg tea.Msg) (tea.Model, tea.Cmd) {
 		idx := m.reviewIdx
 		target := m.comments[idx]
 		return m, m.resolvePane(func() tea.Cmd {
-			payload := BuildPayload(m.diff, []Comment{target})
+			payload := BuildPayload(m.diff, []Comment{target}, m.diffSource)
 			cmd := m.sendPayload(payload)
 			m.removeCommentAt(idx)
 			if m.reviewIdx >= len(m.comments) && m.reviewIdx > 0 {
@@ -55,7 +55,7 @@ func (m *Model) updateReview(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		all := append([]Comment(nil), m.comments...)
 		return m, m.resolvePane(func() tea.Cmd {
-			payload := BuildPayload(m.diff, all)
+			payload := BuildPayload(m.diff, all, m.diffSource)
 			cmd := m.sendPayload(payload)
 			m.comments = m.comments[:0]
 			m.reviewIdx = 0

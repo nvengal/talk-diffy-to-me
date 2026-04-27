@@ -14,10 +14,19 @@ const preamble = `The following are review comments. Respond to questions within
 // block showing the selected lines. Comments are emitted in the order
 // they were authored. The content comes from each comment's snapshot,
 // so orphaned comments still render their original context.
-func BuildPayload(_ *diff.Diff, comments []Comment) string {
+//
+// `source` is the "from" side of the diff being reviewed — typically a
+// ref the user passed via --from (e.g. "main", "@---"), or "@-" in the
+// default jj-current-revision mode. Surfaced in the preamble so the
+// agent knows what the diff is against; the "to" side is the working
+// state (HEAD / @).
+func BuildPayload(_ *diff.Diff, comments []Comment, source string) string {
 	var b strings.Builder
 	b.WriteString(preamble)
 	b.WriteByte('\n')
+	if source != "" {
+		fmt.Fprintf(&b, "\nDiff from: %s\n", source)
+	}
 	for _, c := range comments {
 		writeSection(&b, c)
 	}

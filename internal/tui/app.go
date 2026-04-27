@@ -194,9 +194,10 @@ type fileCommentTarget struct {
 }
 
 type Model struct {
-	diff   *diff.Diff
-	dryRun bool
-	loader func() (*diff.Diff, error) // for 'r' refresh
+	diff       *diff.Diff
+	diffSource string // human-readable origin of the diff, surfaced in the payload preamble
+	dryRun     bool
+	loader     func() (*diff.Diff, error) // for 'r' refresh
 
 	mode mode
 
@@ -255,19 +256,20 @@ type Model struct {
 	quitting bool
 }
 
-func Run(d *diff.Diff, dryRun bool, loader func() (*diff.Diff, error)) error {
-	m := newModel(d, dryRun, loader)
+func Run(d *diff.Diff, dryRun bool, loader func() (*diff.Diff, error), source string) error {
+	m := newModel(d, dryRun, loader, source)
 	_, err := tea.NewProgram(m, tea.WithAltScreen()).Run()
 	return err
 }
 
-func newModel(d *diff.Diff, dryRun bool, loader func() (*diff.Diff, error)) *Model {
+func newModel(d *diff.Diff, dryRun bool, loader func() (*diff.Diff, error), source string) *Model {
 	startMode := modeDiff
 	if d == nil || len(d.Files) == 0 {
 		startMode = modeFilePicker
 	}
 	m := &Model{
 		diff:       d,
+		diffSource: source,
 		dryRun:     dryRun,
 		loader:     loader,
 		mode:       startMode,

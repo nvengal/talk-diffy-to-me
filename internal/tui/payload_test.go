@@ -70,12 +70,13 @@ func TestFixtureRoundTrip(t *testing.T) {
 		}, "guard could be a sentinel error var"),
 	}
 
-	payload := BuildPayload(d, comments)
+	payload := BuildPayload(d, comments, "@-")
 	t.Logf("\n--- payload ---\n%s--- end ---", payload)
 
 	// Sanity checks
 	mustContain := []string{
 		"The following are review comments.",
+		"Diff from: @-",
 		"## greeting.go:10",    // single-line header
 		"## math.go:6-8",       // range header
 		"why return nil here?",
