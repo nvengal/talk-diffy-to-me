@@ -114,11 +114,51 @@ func (m *Model) updateFile(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case "r":
 		m.reloadFile()
 	default:
+		// let viewport handle pgup/pgdown etc; then drag the cursor along
+		// by the same visual-line delta so it stays at the same screen
+		// position.
+		oldY := m.viewport.YOffset
 		var cmd tea.Cmd
 		m.viewport, cmd = m.viewport.Update(msg)
+		delta := m.viewport.YOffset - oldY
+		if delta != 0 && len(fb.rowOffsets) > 0 {
+			m.shiftFileCursorByVisualLines(delta)
+			m.renderFileIntoViewport()
+		}
 		return m, cmd
 	}
 	return m, nil
+}
+
+// shiftFileCursorByVisualLines moves the file cursor by `delta` visual
+// lines so it stays at the same screen position when the viewport
+// scrolls (pgup/pgdn, mouse wheel, etc.).
+func (m *Model) shiftFileCursorByVisualLines(delta int) {
+	fb := m.fileBuf
+	if fb == nil || fb.cursor < 0 || fb.cursor >= len(fb.rowOffsets) {
+		return
+	}
+	target := fb.rowOffsets[fb.cursor] + delta
+	target = clamp(target, 0, max(0, fb.totalVis-1))
+	fb.cursor = rowAtVisOffsetIn(fb.rowOffsets, target)
+}
+
+// rowAtVisOffsetIn is the file-view equivalent of Model.rowAtVisOffset:
+// returns the row whose visual range covers yOff in the given offsets.
+func rowAtVisOffsetIn(offsets []int, yOff int) int {
+	if len(offsets) == 0 {
+		return 0
+	}
+	lo, hi := 0, len(offsets)-1
+	for lo < hi {
+		mid := (lo + hi + 1) / 2
+		if offsets[mid] <= yOff {
+			lo = mid
+		} else {
+			hi = mid - 1
+		}
+	}
+	return lo
 }
 
 // leaveFileMode drops the open file and returns to the diff view if one

@@ -188,12 +188,67 @@ func (m *Model) updateDiff(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case "r":
 		m.refresh()
 	default:
-		// let viewport handle pgup/pgdown etc
+		// let viewport handle pgup/pgdown etc; then drag the cursor along
+		// by the same visual-line delta so it stays at the same screen
+		// position.
+		oldY := m.viewport.YOffset
 		var cmd tea.Cmd
 		m.viewport, cmd = m.viewport.Update(msg)
+		delta := m.viewport.YOffset - oldY
+		if delta != 0 && len(m.rows) > 0 {
+			m.shiftCursorByVisualLines(delta)
+			m.renderDiffIntoViewport()
+		}
 		return m, cmd
 	}
 	return m, nil
+}
+
+// shiftCursorByVisualLines moves the diff cursor by `delta` visual lines,
+// snapping to the nearest rowLine. Used to keep the cursor at the same
+// screen position when the viewport scrolls (pgup/pgdn, ctrl+d/u, mouse).
+func (m *Model) shiftCursorByVisualLines(delta int) {
+	if m.cursor < 0 || m.cursor >= len(m.rowOffsets) {
+		return
+	}
+	target := m.rowOffsets[m.cursor] + delta
+	target = clamp(target, 0, max(0, m.totalVis-1))
+	idx := m.rowAtVisOffset(target)
+	if m.rows[idx].kind == rowLine {
+		m.cursor = idx
+		return
+	}
+	// snap to nearest rowLine in either direction
+	fwd := -1
+	for i := idx + 1; i < len(m.rows); i++ {
+		if m.rows[i].kind == rowLine {
+			fwd = i
+			break
+		}
+	}
+	back := -1
+	for i := idx - 1; i >= 0; i-- {
+		if m.rows[i].kind == rowLine {
+			back = i
+			break
+		}
+	}
+	switch {
+	case fwd == -1 && back == -1:
+		// no content rows at all; leave cursor alone
+	case fwd == -1:
+		m.cursor = back
+	case back == -1:
+		m.cursor = fwd
+	default:
+		fwdDist := m.rowOffsets[fwd] - target
+		backDist := target - m.rowOffsets[back]
+		if fwdDist <= backDist {
+			m.cursor = fwd
+		} else {
+			m.cursor = back
+		}
+	}
 }
 
 // openFileAtCursor opens the file under the diff cursor, positioning the
