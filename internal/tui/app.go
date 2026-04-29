@@ -241,7 +241,8 @@ type Model struct {
 	pickerReturn  mode // where to go after esc (modeDiff, or -1 to quit)
 
 	// open file
-	fileBuf *fileBuf
+	fileBuf    *fileBuf
+	singleFile bool // true when launched with --open <file>; q/esc quits
 
 	// search (file mode)
 	searchInput     textinput.Model
@@ -263,6 +264,22 @@ type Model struct {
 
 func Run(d *diff.Diff, dryRun bool, loader func() (*diff.Diff, error), source string) error {
 	m := newModel(d, dryRun, loader, source)
+	if m.mode == modeFilePicker {
+		m.openPicker(-1) // -1 = quit on esc (no diff to return to)
+	}
+	_, err := tea.NewProgram(m, tea.WithAltScreen()).Run()
+	return err
+}
+
+// RunOpen launches the TUI in single-file mode: no diff, no picker —
+// the given file is opened directly for commenting. q/esc quits.
+func RunOpen(path string, dryRun bool) error {
+	m := newModel(nil, dryRun, nil, "")
+	m.singleFile = true
+	if err := m.openFile(path); err != nil {
+		return fmt.Errorf("open %s: %w", path, err)
+	}
+	m.mode = modeFile
 	_, err := tea.NewProgram(m, tea.WithAltScreen()).Run()
 	return err
 }
@@ -300,10 +317,6 @@ func newModel(d *diff.Diff, dryRun bool, loader func() (*diff.Diff, error), sour
 	m.searchInput = si
 	m.searchIdx = -1
 
-	if startMode == modeFilePicker {
-		m.openPicker(-1) // -1 = quit on esc (no diff to return to)
-	}
-
 	ta := textarea.New()
 	ta.Placeholder = "write your comment…"
 	ta.CharLimit = 0
@@ -338,7 +351,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.viewport.Width = msg.Width
 		m.viewport.Height = max(1, msg.Height-2) // leave room for status
 		m.textarea.SetWidth(max(40, msg.Width-12))
-		m.renderDiffIntoViewport()
+		m.rerenderForMode()
 		return m, nil
 	}
 

@@ -82,6 +82,20 @@ usual.
 `--from` cannot be combined with `--fixture`. Path arguments still
 filter (exact match or directory prefix).
 
+### Opening a single file (`--open`)
+
+Pass `--open <file>` to skip the diff entirely and jump straight into
+the file view for commenting. Works on any file — including ones
+outside a jj repo:
+
+```
+diffy --open internal/tui/app.go
+diffy --open ~/notes.md
+```
+
+`q`/`esc` quits. `--open` cannot be combined with `--from`, `--fixture`,
+or positional path arguments.
+
 ### Diff view
 
 | key      | action                                                    |

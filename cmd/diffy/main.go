@@ -21,12 +21,15 @@ func main() {
 	var fixturePath string
 	var dryRun bool
 	var fromRef string
+	var openPath string
 	fs.StringVar(&fixturePath, "fixture", "", "")
 	fs.BoolVar(&dryRun, "dry-run", false, "")
 	fs.StringVar(&fromRef, "from", "", "")
+	fs.StringVar(&openPath, "open", "", "")
 
 	fs.Usage = func() {
 		fmt.Fprintln(os.Stderr, "Usage: diffy [--from <revset>] [paths...]")
+		fmt.Fprintln(os.Stderr, "       diffy --open <file>")
 		fmt.Fprintln(os.Stderr)
 		fmt.Fprintln(os.Stderr, "Run inside a zellij pane. Reads `jj diff --git` for the current")
 		fmt.Fprintln(os.Stderr, "revision, opens a TUI to leave comments, and ships them into a")
@@ -35,6 +38,9 @@ func main() {
 		fmt.Fprintln(os.Stderr, "With --from <revset>, runs `jj diff --git -r '<revset>..@'`")
 		fmt.Fprintln(os.Stderr, "(PR-review style; e.g. `diffy --from main` or `diffy --from main@origin`).")
 		fmt.Fprintln(os.Stderr, "Any jj revset works.")
+		fmt.Fprintln(os.Stderr)
+		fmt.Fprintln(os.Stderr, "With --open <file>, skips diff loading and opens the file directly")
+		fmt.Fprintln(os.Stderr, "for commenting. Works on any file, even outside a jj repo.")
 		fmt.Fprintln(os.Stderr)
 		fmt.Fprintln(os.Stderr, "Positional paths filter the diff: exact file match or directory prefix.")
 	}
@@ -53,6 +59,23 @@ func main() {
 	if fromRef != "" && fixturePath != "" {
 		fmt.Fprintln(os.Stderr, "--from cannot be combined with --fixture")
 		os.Exit(2)
+	}
+	if openPath != "" && (fromRef != "" || fixturePath != "" || len(paths) > 0) {
+		fmt.Fprintln(os.Stderr, "--open cannot be combined with --from, --fixture, or path arguments")
+		os.Exit(2)
+	}
+
+	if openPath != "" {
+		abs, err := filepath.Abs(openPath)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		if err := tui.RunOpen(abs, dryRun); err != nil {
+			fmt.Fprintf(os.Stderr, "tui: %v\n", err)
+			os.Exit(1)
+		}
+		return
 	}
 
 	if fixturePath == "" {

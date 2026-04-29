@@ -162,8 +162,13 @@ func rowAtVisOffsetIn(offsets []int, yOff int) int {
 }
 
 // leaveFileMode drops the open file and returns to the diff view if one
-// exists, otherwise re-opens the picker.
+// exists, otherwise re-opens the picker. In single-file mode (--open),
+// it quits the app instead.
 func (m *Model) leaveFileMode(keepFile bool) (tea.Model, tea.Cmd) {
+	if m.singleFile {
+		m.quitting = true
+		return m, tea.Quit
+	}
 	if !keepFile {
 		m.fileBuf = nil
 	}
