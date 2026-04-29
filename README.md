@@ -53,31 +53,29 @@ diffy internal/tui/app.go cmd/diffy/main.go
 Paths are forwarded to `jj diff --git -- <paths>`; an exact file match
 or a directory prefix will do.
 
-### Reviewing against another ref (`--from`)
+### Reviewing against another revset (`--from`)
 
-Pass `--from <ref>` to review the diff against a git ref instead of
-the current jj revision. Useful for PR-style review:
+Pass `--from <revset>` to review the diff against a different revision
+instead of the parent of the current one. Useful for PR-style review:
 
 ```
 diffy --from main         # whole branch vs main
-diffy --from HEAD^        # just the last commit
-diffy --from origin/main  # remote-tracking ref
-diffy --from main@origin  # jj revset (resolved via jj first)
+diffy --from @--          # last two commits
+diffy --from main@origin  # remote-tracking bookmark
 ```
 
-Under the hood diffy runs `git diff <ref>...HEAD` — the 3-dot form,
-so git itself uses the merge-base of `<ref>` and `HEAD` as the "from"
-side. Unrelated upstream commits don't show up as deletions.
-Uncommitted working-tree edits aren't included; commit (or stash)
-first if you want them in the review.
+Under the hood diffy runs `jj diff --git -r '<revset>..@'` — the
+combined diff of every commit on `@`'s line that isn't in `<revset>`.
+Upstream commits don't show up as deletions, anything merged in from
+`<revset>`'s line is filtered out, and the working copy is included
+automatically (no need to commit first).
 
-`<ref>` can be either a git ref (`main`, `HEAD^`, `origin/main`, a
-commit hash) or a jj revset. Anything containing `@` is treated as a
-jj revset and resolved to a commit ID via `jj log` before being handed
-to git — so `main@origin`, `@-`, change IDs, etc. all work. Plain git
-refs skip jj entirely.
+`<revset>` is any jj revset. If `<revset>` and `@` are on truly
+divergent branches the revset reaches back to their common ancestor,
+which can produce a large diff — pick a `<revset>` that's actually in
+`@`'s ancestry for PR-style review.
 
-Refresh (`r`) re-runs the diff, so it picks up new commits and ref
+Refresh (`r`) re-runs the diff, so it picks up new commits and bookmark
 movement. The file view (`o`/`O`) reads from the working copy as
 usual.
 
@@ -175,10 +173,9 @@ The following are review comments. Respond to questions within this conversation
 Diff from: <ref>
 ```
 
-The `Diff from:` line is the "from" side of the diff — the ref passed
-via `--from` (verbatim, jj or git), or `@-` in default jj mode (the
-parent of the working-copy revision). The "to" side is the working
-state (HEAD / `@`).
+The `Diff from:` line is the "from" side of the diff — the revset passed
+via `--from` (verbatim), or `@-` in default mode (the parent of the
+working-copy revision). The "to" side is the working copy (`@`).
 
 Followed by one `## path:lines` section per comment, with the comment
 body, then a fenced block showing the selected lines. Diff-anchored
