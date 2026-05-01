@@ -256,6 +256,12 @@ type Model struct {
 	width    int
 	height   int
 
+	// diffYOffset is the diff viewport's YOffset captured the last time
+	// we left modeDiff for modeFile (directly via 'o', or via the picker).
+	// leaveFileMode restores it so the diff view re-enters at the same
+	// scroll position the user left it.
+	diffYOffset int
+
 	status    string
 	statusErr bool
 
@@ -530,16 +536,34 @@ func (m *Model) refresh() {
 			anchored++
 		}
 	}
+	// remember the cursor's pre-refresh anchor + on-screen Y so we can
+	// place the new cursor on the same content after re-rendering. The
+	// screen-Y restore only applies when the diff is currently on-screen.
+	anchor := m.captureCursorAnchor()
+	preserveScreenY := m.mode == modeDiff
+
 	m.diff = nd
 	m.rows = buildRows(nd)
+	matched := false
 	if len(m.rows) > 0 {
-		m.cursor = firstContentRow(m.rows)
+		idx, ok := m.findCursorAfterRefresh(anchor)
+		matched = ok
+		m.cursor = snapToContentRow(m.rows, idx)
 	} else {
 		m.cursor = 0
 	}
 	m.visAnchor = -1
 	m.clearSearch()
 	m.renderDiffIntoViewport()
+	if preserveScreenY && len(m.rows) > 0 && m.cursor < len(m.rowOffsets) {
+		if matched {
+			desired := m.rowOffsets[m.cursor] - anchor.screenY
+			maxOff := max(0, m.totalVis-m.viewport.Height)
+			m.viewport.SetYOffset(clamp(desired, 0, maxOff))
+		} else {
+			m.centerCursorInDiffView()
+		}
+	}
 	switch {
 	case len(m.comments) == 0:
 		m.setStatus("diff refreshed", false)

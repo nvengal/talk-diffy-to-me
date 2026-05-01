@@ -52,6 +52,145 @@ func firstContentRow(rs []row) int {
 	return 0
 }
 
+// cursorAnchor records what the diff cursor was pointing at so we can
+// re-find it after the underlying diff is rebuilt by `r`.
+type cursorAnchor struct {
+	path          string      // file the cursor was in (display path)
+	newLine       int         // 1-based new-side line; 0 if N/A (e.g. deleted line)
+	oldLine       int         // 1-based old-side line; 0 if N/A
+	snapshot      []diff.Line // small context window around the cursor (for fallback)
+	snapCursorIdx int         // index into snapshot pointing at the cursor's line
+	screenY       int         // cursor's pre-refresh on-screen Y (rowOffset - YOffset)
+}
+
+// captureCursorAnchor snapshots enough state to re-anchor the cursor on
+// the same content after a diff rebuild. Returns a zero anchor when the
+// cursor isn't on a content row.
+func (m *Model) captureCursorAnchor() cursorAnchor {
+	var a cursorAnchor
+	if m.cursor >= 0 && m.cursor < len(m.rowOffsets) {
+		a.screenY = m.rowOffsets[m.cursor] - m.viewport.YOffset
+	}
+	if m.diff == nil || m.cursor < 0 || m.cursor >= len(m.rows) {
+		return a
+	}
+	cur := m.rows[m.cursor]
+	if cur.kind != rowLine {
+		return a
+	}
+	f := m.diff.Files[cur.fileIdx]
+	h := f.Hunks[cur.hunkIdx]
+	l := h.Lines[cur.lineIdx]
+	a.path = f.DisplayPath()
+	a.newLine = l.NewLine
+	a.oldLine = l.OldLine
+	const ctx = 2
+	start := max(0, cur.lineIdx-ctx)
+	end := min(len(h.Lines)-1, cur.lineIdx+ctx)
+	a.snapshot = append([]diff.Line(nil), h.Lines[start:end+1]...)
+	a.snapCursorIdx = cur.lineIdx - start
+	return a
+}
+
+// findCursorAfterRefresh locates the row in the rebuilt diff that should
+// receive the cursor. Tries (path, line-number) first; on miss, falls
+// back to a content snapshot search. Returns (rowIdx, matched). When no
+// match is found, returns the first content row with matched=false.
+func (m *Model) findCursorAfterRefresh(a cursorAnchor) (int, bool) {
+	if a.path == "" {
+		return firstContentRow(m.rows), false
+	}
+	if idx, ok := m.findRowByLine(a.path, a.newLine, a.oldLine); ok {
+		return idx, true
+	}
+	if idx, ok := m.findRowBySnapshot(a.path, a.snapshot, a.snapCursorIdx); ok {
+		return idx, true
+	}
+	return firstContentRow(m.rows), false
+}
+
+// findRowByLine returns the row index for a line at (newLine, oldLine)
+// within the file at `path` in the current diff. Prefers a new-side
+// match; falls back to a deleted-line (old-side only) match.
+func (m *Model) findRowByLine(path string, newLine, oldLine int) (int, bool) {
+	for fi, f := range m.diff.Files {
+		if f.DisplayPath() != path {
+			continue
+		}
+		for hi, h := range f.Hunks {
+			for li, l := range h.Lines {
+				switch {
+				case newLine > 0 && l.NewLine == newLine:
+					return rowIndexOf(m.rows, fi, hi, li), true
+				case newLine == 0 && oldLine > 0 && l.OldLine == oldLine && l.NewLine == 0:
+					return rowIndexOf(m.rows, fi, hi, li), true
+				}
+			}
+		}
+	}
+	return 0, false
+}
+
+// findRowBySnapshot scans hunks of the file at `path` for a contiguous
+// run of lines matching `snap` (Kind+Text), and returns the row covering
+// the cursor's original position within that run.
+func (m *Model) findRowBySnapshot(path string, snap []diff.Line, snapCursorIdx int) (int, bool) {
+	if len(snap) == 0 {
+		return 0, false
+	}
+	for fi, f := range m.diff.Files {
+		if f.DisplayPath() != path {
+			continue
+		}
+		for hi, h := range f.Hunks {
+			for start := 0; start+len(snap) <= len(h.Lines); start++ {
+				match := true
+				for k, sl := range snap {
+					hl := h.Lines[start+k]
+					if hl.Kind != sl.Kind || hl.Text != sl.Text {
+						match = false
+						break
+					}
+				}
+				if match {
+					return rowIndexOf(m.rows, fi, hi, start+snapCursorIdx), true
+				}
+			}
+		}
+	}
+	return 0, false
+}
+
+// rowIndexOf returns the index of the rowLine matching (fi, hi, li), or
+// 0 if not found (shouldn't happen when buildRows was just called).
+func rowIndexOf(rs []row, fi, hi, li int) int {
+	for i, r := range rs {
+		if r.kind == rowLine && r.fileIdx == fi && r.hunkIdx == hi && r.lineIdx == li {
+			return i
+		}
+	}
+	return 0
+}
+
+// snapToContentRow returns idx if it's a content row, otherwise the
+// nearest rowLine (preferring forward). Falls back to 0 when none exist.
+func snapToContentRow(rs []row, idx int) int {
+	if idx >= 0 && idx < len(rs) && rs[idx].kind == rowLine {
+		return idx
+	}
+	for i := idx + 1; i < len(rs); i++ {
+		if rs[i].kind == rowLine {
+			return i
+		}
+	}
+	for i := idx - 1; i >= 0; i-- {
+		if rs[i].kind == rowLine {
+			return i
+		}
+	}
+	return 0
+}
+
 func lastContentRow(rs []row) int {
 	for i := len(rs) - 1; i >= 0; i-- {
 		if rs[i].kind == rowLine {
@@ -280,6 +419,7 @@ func (m *Model) openFileAtCursor() {
 		}
 	}
 
+	m.diffYOffset = m.viewport.YOffset
 	if err := m.openFile(path); err != nil {
 		m.setStatus(fmt.Sprintf("open %s: %v", path, err), true)
 		return

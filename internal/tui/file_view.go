@@ -177,6 +177,7 @@ func (m *Model) leaveFileMode(keepFile bool) (tea.Model, tea.Cmd) {
 	m.clearSearch()
 	if m.diff != nil && len(m.diff.Files) > 0 {
 		m.mode = modeDiff
+		m.viewport.SetYOffset(m.diffYOffset)
 		m.renderDiffIntoViewport()
 		return m, nil
 	}
@@ -196,6 +197,13 @@ func (m *Model) reloadFile() {
 	if err != nil {
 		m.setStatus(fmt.Sprintf("reload: %v", err), true)
 		return
+	}
+	// remember the file cursor's pre-reload on-screen Y so we can place
+	// the new cursor at the same screen position after re-rendering.
+	oldCursor := fb.cursor
+	oldScreenY := 0
+	if oldCursor >= 0 && oldCursor < len(fb.rowOffsets) && m.mode == modeFile {
+		oldScreenY = fb.rowOffsets[oldCursor] - m.viewport.YOffset
 	}
 	content := string(data)
 	lines := splitFileLines(content)
@@ -223,6 +231,11 @@ func (m *Model) reloadFile() {
 		}
 	}
 	m.renderFileIntoViewport()
+	if m.mode == modeFile && fb.cursor < len(fb.rowOffsets) {
+		desired := fb.rowOffsets[fb.cursor] - oldScreenY
+		maxOff := max(0, fb.totalVis-m.viewport.Height)
+		m.viewport.SetYOffset(clamp(desired, 0, maxOff))
+	}
 	switch {
 	case anchored+orphans == 0:
 		m.setStatus("file reloaded", false)

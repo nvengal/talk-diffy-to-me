@@ -69,6 +69,9 @@ func (m *Model) updatePicker(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if len(m.pickerMatches) == 0 {
 			return m, nil
 		}
+		if m.pickerReturn == modeDiff {
+			m.diffYOffset = m.viewport.YOffset
+		}
 		path := m.pickerMatches[m.pickerSel].Path
 		if err := m.openFile(path); err != nil {
 			m.setStatus(fmt.Sprintf("open %s: %v", path, err), true)
