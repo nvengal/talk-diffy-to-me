@@ -1,3 +1,7 @@
+vim.api.nvim_create_user_command("Diffy", function(o)
+  require("diffy").open(o.fargs)
+end, { nargs = "*", complete = "file", desc = "Review `jj diff --git` [--from <revset>] [paths...]" })
+
 vim.api.nvim_create_user_command("DiffyComment", function(o)
   require("diffy").comment(o.line1, o.line2)
 end, { range = true, desc = "Comment on the current line or range" })

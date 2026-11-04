@@ -60,7 +60,8 @@ describe("commands", function()
     vim.cmd("2,3DiffyComment")
 
     local c = comments.all()[1]
-    assert.are.same({ "cmd" .. buf .. ".go", 2, 3, "needs a test" }, { c.path, c.start, c.finish, c.body })
+    assert.are.same({ { path = "cmd" .. buf .. ".go", start = 2, finish = 3 } }, c.spans)
+    assert.are.equal("needs a test", c.body)
   end)
 
   it(":DiffyComment ignores a cancelled or empty input", function()

@@ -1,15 +1,13 @@
 local comments = require("diffy.comments")
+local notify = require("diffy.notify")
 local payload = require("diffy.payload")
+local view = require("diffy.view")
 local zellij = require("diffy.zellij")
 
 local M = {}
 
 ---@type integer?
 local pane_id
-
-local function notify(msg, level)
-  vim.notify("diffy: " .. msg, level or vim.log.levels.INFO)
-end
 
 ---@param p diffy.Pane
 local function describe_pane(p)
@@ -46,10 +44,18 @@ end
 ---@param line2 integer
 function M.comment(line1, line2)
   local buf = vim.api.nvim_get_current_buf()
-  local label = line1 == line2 and line1 or (line1 .. "-" .. line2)
-  vim.ui.input({ prompt = ("Comment on %s:%s: "):format(comments.path(buf), label) }, function(body)
+  local target, err
+  if view.owns(buf) then
+    target, err = view.target(buf, line1, line2)
+  else
+    target = comments.file_target(buf, line1, line2)
+  end
+  if not target then
+    return notify(err, vim.log.levels.ERROR)
+  end
+  vim.ui.input({ prompt = ("Comment on %s: "):format(payload.location(target.spans)) }, function(body)
     if body and body ~= "" then
-      comments.add(buf, line1, line2, body)
+      comments.add(buf, line1, line2, body, target)
     end
   end)
 end
@@ -72,6 +78,20 @@ function M.send()
     comments.clear()
     notify(("sent %d comment(s)"):format(#all))
   end)
+end
+
+---@param args string[] `[--from <revset>] [paths...]`
+function M.open(args)
+  local opts = { paths = {} }
+  if args[1] == "--from" then
+    if not args[2] then
+      return notify("--from needs a revset", vim.log.levels.ERROR)
+    end
+    opts.from = args[2]
+    args = vim.list_slice(args, 3)
+  end
+  opts.paths = args
+  view.open(opts)
 end
 
 function M.reset_pane()

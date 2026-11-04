@@ -3,13 +3,41 @@ local M = {}
 local preamble =
   "The following are review comments. Respond to questions within this conversation (not in code comments). Make requested changes."
 
-local function span(c)
-  if c.start == c.finish then
-    return tostring(c.start)
+---@param s diffy.Span
+local function range(s)
+  if s.start == s.finish then
+    return tostring(s.start)
   end
-  return c.start .. "-" .. c.finish
+  return s.start .. "-" .. s.finish
 end
 
+---@param spans diffy.Span[]
+---@return string e.g. "a.go:1, 5-6; b.go:2"
+function M.location(spans)
+  local groups = {}
+  for i, s in ipairs(spans) do
+    if i > 1 and spans[i - 1].path == s.path then
+      groups[#groups] = groups[#groups] .. ", " .. range(s)
+    else
+      table.insert(groups, s.path .. ":" .. range(s))
+    end
+  end
+  return table.concat(groups, "; ")
+end
+
+---@param comments diffy.Comment[]
+local function sources(comments)
+  local seen, out = {}, {}
+  for _, c in ipairs(comments) do
+    if c.source and not seen[c.source] then
+      seen[c.source] = true
+      table.insert(out, c.source)
+    end
+  end
+  return out
+end
+
+---@param c diffy.Comment
 local function fenced(c)
   local out = { c.kind == "diff" and "```diff" or "```" }
   for _, line in ipairs(c.snapshot) do
@@ -20,15 +48,15 @@ local function fenced(c)
 end
 
 ---@param comments diffy.Comment[]
----@param source? string the "from" side of the reviewed diff
 ---@return string
-function M.build(comments, source)
+function M.build(comments)
   local out = { preamble, "\n" }
-  if source then
-    table.insert(out, "\nDiff from: " .. source .. "\n")
+  local from = sources(comments)
+  if #from > 0 then
+    table.insert(out, "\nDiff from: " .. table.concat(from, ", ") .. "\n")
   end
   for _, c in ipairs(comments) do
-    table.insert(out, ("\n## %s:%s\n\n%s\n\n"):format(c.path, span(c), c.body))
+    table.insert(out, ("\n## %s\n\n%s\n\n"):format(M.location(c.spans), c.body))
     table.insert(out, fenced(c))
   end
   return table.concat(out)

@@ -14,19 +14,25 @@ local function sign_lines(buf)
   end, placed)
 end
 
+local function add(buf, first, last, body)
+  comments.add(buf, first, last, body, comments.file_target(buf, first, last))
+end
+
+local function lines_of(c)
+  return { c.spans[1].start, c.spans[1].finish }
+end
+
 describe("comments", function()
   before_each(comments.clear)
 
   it("records a file comment with its path, range, and snapshot", function()
     local buf = file_buf({ "a", "b", "c", "d" })
-    comments.add(buf, 2, 3, "why?")
+    add(buf, 2, 3, "why?")
 
     assert.are.same({
       {
         kind = "file",
-        path = "sub/x" .. buf .. ".go",
-        start = 2,
-        finish = 3,
+        spans = { { path = "sub/x" .. buf .. ".go", start = 2, finish = 3 } },
         body = "why?",
         orphan = false,
         snapshot = { { kind = " ", text = "b" }, { kind = " ", text = "c" } },
@@ -34,30 +40,65 @@ describe("comments", function()
     }, comments.all())
   end)
 
+  describe("path", function()
+    local cwd = vim.fn.getcwd()
+    after_each(function()
+      vim.cmd.cd(cwd)
+    end)
+
+    local function path_in(dir, name)
+      vim.fn.mkdir(dir, "p")
+      vim.cmd.cd(dir)
+      local buf = vim.api.nvim_create_buf(true, false)
+      vim.api.nvim_buf_set_name(buf, dir .. "/" .. name)
+      vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "a" })
+      return comments.file_target(buf, 1, 1).spans[1].path
+    end
+
+    it("is relative to the jj workspace root, even from a subdirectory", function()
+      local root = vim.fn.resolve(vim.fn.tempname())
+      vim.fn.mkdir(root .. "/.jj", "p")
+      assert.are.equal("sub/a.go", path_in(root .. "/sub", "a.go"))
+    end)
+
+    it("names a file from another jj workspace by its full path", function()
+      local other = vim.fn.resolve(vim.fn.tempname())
+      vim.fn.mkdir(other .. "/.jj", "p")
+      local buf = vim.api.nvim_create_buf(true, false)
+      vim.api.nvim_buf_set_name(buf, other .. "/b.go")
+      vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "b" })
+      assert.are.equal(other .. "/b.go", comments.file_target(buf, 1, 1).spans[1].path)
+    end)
+
+    it("is relative to the working directory outside a jj workspace", function()
+      assert.are.equal("a.go", path_in(vim.fn.resolve(vim.fn.tempname()), "a.go"))
+    end)
+  end)
+
   it("follows its lines when text is inserted above", function()
     local buf = file_buf({ "a", "b", "c", "d" })
-    comments.add(buf, 2, 3, "why?")
+    add(buf, 2, 3, "why?")
     vim.api.nvim_buf_set_lines(buf, 0, 0, false, { "new" })
 
     local c = comments.all()[1]
-    assert.are.same({ 3, 4 }, { c.start, c.finish })
+    assert.are.same({ 3, 4 }, lines_of(c))
     assert.are.same("b", c.snapshot[1].text)
   end)
 
   it("marks every covered line in the sign column", function()
     local buf = file_buf({ "a", "b", "c", "d" })
-    comments.add(buf, 2, 3, "why?")
+    add(buf, 2, 3, "why?")
     assert.are.same({ 2, 3 }, sign_lines(buf))
   end)
 
   it("becomes an orphan at its last known lines when they are deleted", function()
     local buf = file_buf({ "a", "b", "c", "d" })
-    comments.add(buf, 2, 3, "why?")
+    add(buf, 2, 3, "why?")
     vim.api.nvim_buf_set_lines(buf, 1, 3, false, {})
 
     local c = comments.all()[1]
     assert.is_true(c.orphan)
-    assert.are.same({ 2, 3 }, { c.start, c.finish })
+    assert.are.same({ 2, 3 }, lines_of(c))
     assert.are.same("c", c.snapshot[2].text)
     assert.are.same({}, sign_lines(buf))
   end)
@@ -66,21 +107,21 @@ describe("comments", function()
     local buf = file_buf({ "a", "b", "c", "d" })
     vim.api.nvim_set_current_buf(buf)
     vim.bo[buf].undolevels = 100
-    comments.add(buf, 2, 3, "why?")
+    add(buf, 2, 3, "why?")
     vim.cmd("normal! 2Gdj")
     vim.cmd("undo")
 
     local c = comments.all()[1]
     assert.is_false(c.orphan)
-    assert.are.same({ 2, 3 }, { c.start, c.finish })
+    assert.are.same({ 2, 3 }, lines_of(c))
     assert.are.same({ 2, 3 }, sign_lines(buf))
   end)
 
   it("removes every comment covering a line", function()
     local buf = file_buf({ "a", "b", "c", "d" })
-    comments.add(buf, 1, 2, "one")
-    comments.add(buf, 2, 3, "two")
-    comments.add(buf, 4, 4, "three")
+    add(buf, 1, 2, "one")
+    add(buf, 2, 3, "two")
+    add(buf, 4, 4, "three")
 
     assert.are.equal(2, comments.remove_at(buf, 2))
     assert.are.same({ "three" }, vim.tbl_map(function(c)
@@ -89,11 +130,26 @@ describe("comments", function()
     assert.are.same({ 4 }, sign_lines(buf))
   end)
 
+  it("keeps a diff comment's spans and source while marking the rows it was made on", function()
+    local buf = file_buf({ "@@ -38,2 +38,2 @@", "-a", "+b" })
+    local target = {
+      kind = "diff",
+      source = "@-",
+      spans = { { path = "a.go", start = 38, finish = 38 } },
+      snapshot = { { kind = "-", text = "a" }, { kind = "+", text = "b" } },
+    }
+    comments.add(buf, 2, 3, "why?", target)
+
+    assert.are.same({ vim.tbl_extend("force", target, { body = "why?", orphan = false }) }, comments.all())
+    assert.are.same({ 2, 3 }, sign_lines(buf))
+    assert.are.equal(1, comments.remove_at(buf, 3))
+  end)
+
   it("keeps each buffer's comments and signs to itself", function()
     local a = file_buf({ "a", "b" })
     local b = file_buf({ "a", "b" })
-    comments.add(a, 1, 1, "in a")
-    comments.add(b, 2, 2, "in b")
+    add(a, 1, 1, "in a")
+    add(b, 2, 2, "in b")
 
     assert.are.same({ 1 }, sign_lines(a))
     assert.are.same({ 2 }, sign_lines(b))
@@ -103,7 +159,7 @@ describe("comments", function()
 
   it("clears all comments and leaves no marks behind", function()
     local buf = file_buf({ "a", "b" })
-    comments.add(buf, 1, 1, "one")
+    add(buf, 1, 1, "one")
     comments.clear()
 
     assert.are.same({}, comments.all())

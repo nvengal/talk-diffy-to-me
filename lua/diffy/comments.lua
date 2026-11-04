@@ -1,21 +1,29 @@
 local M = {}
 
 ---@class diffy.SnapshotLine
----@field kind string one of " ", "+", "-"
+---@field kind string " ", "+", "-", or "" for a diff header line kept verbatim
 ---@field text string
 
----@class diffy.Comment
----@field kind "file"|"diff"
+---@class diffy.Span
 ---@field path string
----@field start integer 1-based, inclusive
----@field finish integer 1-based, inclusive
+---@field start integer 1-based display line, inclusive
+---@field finish integer 1-based display line, inclusive
+
+---@class diffy.Target
+---@field kind "file"|"diff"
+---@field spans diffy.Span[]
+---@field snapshot diffy.SnapshotLine[]
+---@field source? string the "from" side of the reviewed diff
+
+---@class diffy.Comment : diffy.Target
 ---@field body string
 ---@field orphan boolean
----@field snapshot diffy.SnapshotLine[]
 
 ---@class diffy.Entry : diffy.Comment
 ---@field buf integer
 ---@field mark integer
+---@field first integer 1-based buffer row the comment covers, inclusive
+---@field last integer
 
 local ns = vim.api.nvim_create_namespace("diffy")
 local sign_ns = vim.api.nvim_create_namespace("diffy_signs")
@@ -32,7 +40,10 @@ local function resolve(e)
     e.orphan = true
     return
   end
-  e.start, e.finish, e.orphan = pos[1] + 1, pos[3].end_row + 1, false
+  e.first, e.last, e.orphan = pos[1] + 1, pos[3].end_row + 1, false
+  if e.kind == "file" then
+    e.spans[1].start, e.spans[1].finish = e.first, e.last
+  end
 end
 
 ---@param buf integer
@@ -41,7 +52,7 @@ local function render(buf)
   for _, e in ipairs(entries) do
     resolve(e)
     if e.buf == buf and not e.orphan then
-      for row = e.start - 1, e.finish - 1 do
+      for row = e.first - 1, e.last - 1 do
         vim.api.nvim_buf_set_extmark(buf, sign_ns, row, 0, {
           sign_text = "▸",
           sign_hl_group = "DiffySign",
@@ -53,34 +64,49 @@ local function render(buf)
 end
 
 ---@param buf integer
----@return string
-function M.path(buf)
-  return vim.fn.fnamemodify(vim.api.nvim_buf_get_name(buf), ":.")
+---@return string relative to the jj workspace root, matching diff paths; else to the cwd
+local function path(buf)
+  local name = vim.api.nvim_buf_get_name(buf)
+  local root = vim.fs.root(vim.fn.getcwd(), ".jj")
+  return root and vim.fs.relpath(root, name) or vim.fn.fnamemodify(name, ":.")
 end
 
 ---@param buf integer
----@param start integer 1-based, inclusive
----@param finish integer 1-based, inclusive
----@param body string
-function M.add(buf, start, finish, body)
-  local lines = vim.api.nvim_buf_get_lines(buf, start - 1, finish, true)
-  table.insert(entries, {
+---@param first integer 1-based, inclusive
+---@param last integer
+---@return diffy.Target
+function M.file_target(buf, first, last)
+  return {
     kind = "file",
-    path = M.path(buf),
-    start = start,
-    finish = finish,
-    body = body,
-    orphan = false,
+    spans = { { path = path(buf), start = first, finish = last } },
     snapshot = vim.tbl_map(function(text)
       return { kind = " ", text = text }
-    end, lines),
-    buf = buf,
-    mark = vim.api.nvim_buf_set_extmark(buf, ns, start - 1, 0, {
-      end_row = finish - 1,
-      end_col = #lines[#lines],
-      invalidate = true,
-    }),
-  })
+    end, vim.api.nvim_buf_get_lines(buf, first - 1, last, true)),
+  }
+end
+
+---@param buf integer
+---@param first integer 1-based buffer row, inclusive
+---@param last integer
+---@param body string
+---@param target diffy.Target
+function M.add(buf, first, last, body, target)
+  local last_line = vim.api.nvim_buf_get_lines(buf, last - 1, last, true)[1]
+  table.insert(
+    entries,
+    vim.tbl_extend("force", target, {
+      body = body,
+      orphan = false,
+      buf = buf,
+      first = first,
+      last = last,
+      mark = vim.api.nvim_buf_set_extmark(buf, ns, first - 1, 0, {
+        end_row = last - 1,
+        end_col = #last_line,
+        invalidate = true,
+      }),
+    })
+  )
   render(buf)
 end
 
@@ -90,9 +116,8 @@ function M.all()
     resolve(e)
     return {
       kind = e.kind,
-      path = e.path,
-      start = e.start,
-      finish = e.finish,
+      source = e.source,
+      spans = e.spans,
       body = e.body,
       orphan = e.orphan,
       snapshot = e.snapshot,
@@ -101,13 +126,13 @@ function M.all()
 end
 
 ---@param buf integer
----@param lnum integer 1-based
+---@param lnum integer 1-based buffer row
 ---@return integer removed
 function M.remove_at(buf, lnum)
   local kept = {}
   for _, e in ipairs(entries) do
     resolve(e)
-    if e.buf == buf and not e.orphan and e.start <= lnum and lnum <= e.finish then
+    if e.buf == buf and not e.orphan and e.first <= lnum and lnum <= e.last then
       vim.api.nvim_buf_del_extmark(buf, ns, e.mark)
     else
       table.insert(kept, e)
