@@ -15,7 +15,7 @@ local function sign_lines(buf)
 end
 
 local function add(buf, first, last, body)
-  comments.add(buf, first, last, body, comments.file_target(buf, first, last))
+  comments.add(buf, body, comments.file_target(buf, first, last))
 end
 
 local function lines_of(c)
@@ -128,21 +128,115 @@ describe("comments", function()
       return c.body
     end, comments.all()))
     assert.are.same({ 4 }, sign_lines(buf))
+
+    comments.remove_at(buf, 4)
+    assert.are.same({}, vim.api.nvim_buf_get_extmarks(buf, -1, 0, -1, {}))
   end)
 
   it("keeps a diff comment's spans and source while marking the rows it was made on", function()
     local buf = file_buf({ "@@ -38,2 +38,2 @@", "-a", "+b" })
-    local target = {
+    local snapshot = { { kind = "-", text = "a" }, { kind = "+", text = "b" } }
+    comments.add(buf, "why?", {
       kind = "diff",
       source = "@-",
-      spans = { { path = "a.go", start = 38, finish = 38 } },
-      snapshot = { { kind = "-", text = "a" }, { kind = "+", text = "b" } },
-    }
-    comments.add(buf, 2, 3, "why?", target)
+      spans = { { path = "a.go", start = 38, finish = 38, first = 2, last = 3, lines = snapshot } },
+      snapshot = snapshot,
+    })
 
-    assert.are.same({ vim.tbl_extend("force", target, { body = "why?", orphan = false }) }, comments.all())
+    assert.are.same({
+      {
+        kind = "diff",
+        source = "@-",
+        spans = { { path = "a.go", start = 38, finish = 38 } },
+        body = "why?",
+        orphan = false,
+        snapshot = snapshot,
+      },
+    }, comments.all())
     assert.are.same({ 2, 3 }, sign_lines(buf))
     assert.are.equal(1, comments.remove_at(buf, 3))
+  end)
+
+  it("marks only the rows of each span of a comment that crosses hunks", function()
+    local buf = file_buf({ "@@ -1 +1 @@", "+x", "@@ -9 +9 @@", "+y" })
+    comments.add(buf, "both", {
+      kind = "diff",
+      source = "@-",
+      spans = {
+        { path = "a.go", start = 1, finish = 1, first = 2, last = 2, lines = { { kind = "+", text = "x" } } },
+        { path = "a.go", start = 9, finish = 9, first = 4, last = 4, lines = { { kind = "+", text = "y" } } },
+      },
+      snapshot = {},
+    })
+
+    assert.are.same({ 2, 4 }, sign_lines(buf))
+    assert.are.equal(0, comments.remove_at(buf, 3))
+    assert.are.equal(1, comments.remove_at(buf, 4))
+  end)
+
+  describe("when its file is reloaded", function()
+    local function disk_buf(lines)
+      local file = vim.fn.resolve(vim.fn.tempname()) .. ".go"
+      vim.fn.writefile(lines, file)
+      vim.cmd.edit(file)
+      return vim.api.nvim_get_current_buf(), file
+    end
+
+    local function reload(file, lines)
+      vim.fn.writefile(lines, file)
+      vim.cmd("edit!")
+    end
+
+    it("follows its text to where it now is", function()
+      local buf, file = disk_buf({ "a", "b", "c", "d" })
+      add(buf, 3, 3, "why?")
+      reload(file, { "new", "a", "b", "c", "d" })
+
+      local c = comments.all()[1]
+      assert.is_false(c.orphan)
+      assert.are.same({ 4, 4 }, lines_of(c))
+      assert.are.same({ 4 }, sign_lines(buf))
+    end)
+
+    it("picks the copy of repeated lines nearest to where it was", function()
+      local buf, file = disk_buf({ "}", "a", "b", "}" })
+      add(buf, 4, 4, "why?")
+      reload(file, { "new", "}", "a", "b", "}" })
+
+      assert.are.same({ 5, 5 }, lines_of(comments.all()[1]))
+    end)
+
+    it("becomes an orphan when its text is gone", function()
+      local buf, file = disk_buf({ "a", "b", "c" })
+      add(buf, 2, 2, "why?")
+      reload(file, { "a", "c" })
+
+      assert.is_true(comments.all()[1].orphan)
+      assert.are.same({}, sign_lines(buf))
+    end)
+
+    it("leaves other files' comments where they are", function()
+      local a, file_a = disk_buf({ "a", "b" })
+      add(a, 2, 2, "in a")
+      local b = disk_buf({ "x", "b" })
+      add(b, 2, 2, "in b")
+      vim.cmd.buffer(a)
+      reload(file_a, { "b", "a" })
+
+      assert.are.same({ 1 }, sign_lines(a))
+      assert.are.same({ 2 }, sign_lines(b))
+    end)
+
+    it("reattaches when its file is closed and opened again", function()
+      local buf, file = disk_buf({ "a", "b", "c" })
+      add(buf, 2, 2, "why?")
+      vim.cmd("bwipeout! " .. buf)
+      assert.is_true(comments.all()[1].orphan)
+
+      vim.cmd.edit(file)
+      assert.is_false(comments.all()[1].orphan)
+      assert.are.same({ 2 }, sign_lines(vim.api.nvim_get_current_buf()))
+    end)
   end)
 
   it("keeps each buffer's comments and signs to itself", function()

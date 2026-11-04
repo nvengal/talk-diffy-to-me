@@ -1,3 +1,5 @@
+local match = require("diffy.match")
+
 local M = {}
 
 ---@class diffy.Row
@@ -65,10 +67,15 @@ function M.target(rows, first, last, source)
     table.insert(snapshot, { kind = r.kind, text = r.text })
     if r.kind ~= "" then
       local n = r.new or r.old
-      if #spans > 0 and span_hunk == r.hunk then
-        spans[#spans].finish = n
+      local span = spans[#spans]
+      if span and span_hunk == r.hunk then
+        for j = span.last + 1, i do
+          table.insert(span.lines, { kind = rows[j].kind, text = rows[j].text })
+        end
+        span.finish, span.last = n, i
       else
-        table.insert(spans, { path = r.path, start = n, finish = n })
+        local lines = { { kind = r.kind, text = r.text } }
+        table.insert(spans, { path = r.path, start = n, finish = n, first = i, last = i, lines = lines })
         span_hunk = r.hunk
       end
     end
@@ -77,6 +84,41 @@ function M.target(rows, first, last, source)
     return nil, "no diff lines selected"
   end
   return { kind = "diff", source = source, spans = spans, snapshot = snapshot }
+end
+
+---@class diffy.Anchor
+---@field first integer 1-based buffer row, inclusive
+---@field last integer
+---@field start integer 1-based display line, inclusive
+---@field finish integer
+
+---@param rows diffy.Row[]
+---@param span diffy.Span
+---@return diffy.Anchor? where the span's lines now are, nearest to where they were
+function M.find(rows, span)
+  local want = span.lines
+  local first = match.nearest(#rows, #want, span.first, function(first)
+    if rows[first].path ~= span.path then
+      return false
+    end
+    for k, w in ipairs(want) do
+      local r = rows[first + k - 1]
+      if r.kind ~= w.kind or r.text ~= w.text then
+        return false
+      end
+    end
+    return true
+  end)
+  if not first then
+    return nil
+  end
+  local last = first + #want - 1
+  return {
+    first = first,
+    last = last,
+    start = rows[first].new or rows[first].old,
+    finish = rows[last].new or rows[last].old,
+  }
 end
 
 ---@param rows diffy.Row[]

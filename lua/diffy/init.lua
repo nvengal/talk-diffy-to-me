@@ -55,7 +55,7 @@ function M.comment(line1, line2)
   end
   vim.ui.input({ prompt = ("Comment on %s: "):format(payload.location(target.spans)) }, function(body)
     if body and body ~= "" then
-      comments.add(buf, line1, line2, body, target)
+      comments.add(buf, body, target)
     end
   end)
 end

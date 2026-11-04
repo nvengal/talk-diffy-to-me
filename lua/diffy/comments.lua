@@ -1,29 +1,40 @@
+local match = require("diffy.match")
+
 local M = {}
 
 ---@class diffy.SnapshotLine
 ---@field kind string " ", "+", "-", or "" for a diff header line kept verbatim
 ---@field text string
 
----@class diffy.Span
+---@class diffy.Location
 ---@field path string
 ---@field start integer 1-based display line, inclusive
 ---@field finish integer 1-based display line, inclusive
 
+---@class diffy.Span : diffy.Location
+---@field first integer 1-based buffer row the span covers, inclusive
+---@field last integer
+---@field lines diffy.SnapshotLine[] the span's content, which re-anchoring searches for
+---@field mark? integer
+
 ---@class diffy.Target
 ---@field kind "file"|"diff"
 ---@field spans diffy.Span[]
----@field snapshot diffy.SnapshotLine[]
+---@field snapshot diffy.SnapshotLine[] the selection as shown in the payload
 ---@field source? string the "from" side of the reviewed diff
 
----@class diffy.Comment : diffy.Target
+---@class diffy.Comment
+---@field kind "file"|"diff"
+---@field spans diffy.Location[]
+---@field snapshot diffy.SnapshotLine[]
+---@field source? string
 ---@field body string
 ---@field orphan boolean
 
----@class diffy.Entry : diffy.Comment
+---@class diffy.Entry : diffy.Target
 ---@field buf integer
----@field mark integer
----@field first integer 1-based buffer row the comment covers, inclusive
----@field last integer
+---@field body string
+---@field orphan boolean
 
 local ns = vim.api.nvim_create_namespace("diffy")
 local sign_ns = vim.api.nvim_create_namespace("diffy_signs")
@@ -34,15 +45,40 @@ local entries = {}
 
 ---@param e diffy.Entry
 local function resolve(e)
-  local pos = vim.api.nvim_buf_is_valid(e.buf)
-    and vim.api.nvim_buf_get_extmark_by_id(e.buf, ns, e.mark, { details = true })
-  if not pos or not pos[1] or pos[3].invalid then
-    e.orphan = true
-    return
+  for _, s in ipairs(e.spans) do
+    local pos = s.mark
+      and vim.api.nvim_buf_is_valid(e.buf)
+      and vim.api.nvim_buf_get_extmark_by_id(e.buf, ns, s.mark, { details = true })
+    if not pos or not pos[1] or pos[3].invalid then
+      e.orphan = true
+      return
+    end
+    s.first, s.last = pos[1] + 1, pos[3].end_row + 1
+    if e.kind == "file" then
+      s.start, s.finish = s.first, s.last
+    end
   end
-  e.first, e.last, e.orphan = pos[1] + 1, pos[3].end_row + 1, false
-  if e.kind == "file" then
-    e.spans[1].start, e.spans[1].finish = e.first, e.last
+  e.orphan = false
+end
+
+---@param buf integer
+---@param s diffy.Span
+local function place(buf, s)
+  local last_line = vim.api.nvim_buf_get_lines(buf, s.last - 1, s.last, true)[1]
+  s.mark = vim.api.nvim_buf_set_extmark(buf, ns, s.first - 1, 0, {
+    end_row = s.last - 1,
+    end_col = #last_line,
+    invalidate = true,
+  })
+end
+
+---@param e diffy.Entry
+local function unplace(e)
+  for _, s in ipairs(e.spans) do
+    if s.mark and vim.api.nvim_buf_is_valid(e.buf) then
+      vim.api.nvim_buf_del_extmark(e.buf, ns, s.mark)
+    end
+    s.mark = nil
   end
 end
 
@@ -52,12 +88,14 @@ local function render(buf)
   for _, e in ipairs(entries) do
     resolve(e)
     if e.buf == buf and not e.orphan then
-      for row = e.first - 1, e.last - 1 do
-        vim.api.nvim_buf_set_extmark(buf, sign_ns, row, 0, {
-          sign_text = "▸",
-          sign_hl_group = "DiffySign",
-          invalidate = true,
-        })
+      for _, s in ipairs(e.spans) do
+        for row = s.first - 1, s.last - 1 do
+          vim.api.nvim_buf_set_extmark(buf, sign_ns, row, 0, {
+            sign_text = "▸",
+            sign_hl_group = "DiffySign",
+            invalidate = true,
+          })
+        end
       end
     end
   end
@@ -76,37 +114,25 @@ end
 ---@param last integer
 ---@return diffy.Target
 function M.file_target(buf, first, last)
+  local snapshot = vim.tbl_map(function(text)
+    return { kind = " ", text = text }
+  end, vim.api.nvim_buf_get_lines(buf, first - 1, last, true))
   return {
     kind = "file",
-    spans = { { path = path(buf), start = first, finish = last } },
-    snapshot = vim.tbl_map(function(text)
-      return { kind = " ", text = text }
-    end, vim.api.nvim_buf_get_lines(buf, first - 1, last, true)),
+    spans = { { path = path(buf), start = first, finish = last, first = first, last = last, lines = snapshot } },
+    snapshot = snapshot,
   }
 end
 
 ---@param buf integer
----@param first integer 1-based buffer row, inclusive
----@param last integer
 ---@param body string
 ---@param target diffy.Target
-function M.add(buf, first, last, body, target)
-  local last_line = vim.api.nvim_buf_get_lines(buf, last - 1, last, true)[1]
-  table.insert(
-    entries,
-    vim.tbl_extend("force", target, {
-      body = body,
-      orphan = false,
-      buf = buf,
-      first = first,
-      last = last,
-      mark = vim.api.nvim_buf_set_extmark(buf, ns, first - 1, 0, {
-        end_row = last - 1,
-        end_col = #last_line,
-        invalidate = true,
-      }),
-    })
-  )
+function M.add(buf, body, target)
+  local e = vim.tbl_extend("force", target, { buf = buf, body = body, orphan = false })
+  for _, s in ipairs(e.spans) do
+    place(buf, s)
+  end
+  table.insert(entries, e)
   render(buf)
 end
 
@@ -117,12 +143,25 @@ function M.all()
     return {
       kind = e.kind,
       source = e.source,
-      spans = e.spans,
+      spans = vim.tbl_map(function(s)
+        return { path = s.path, start = s.start, finish = s.finish }
+      end, e.spans),
       body = e.body,
       orphan = e.orphan,
       snapshot = e.snapshot,
     }
   end, entries)
+end
+
+---@param e diffy.Entry
+---@param lnum integer
+local function covers(e, lnum)
+  for _, s in ipairs(e.spans) do
+    if s.first <= lnum and lnum <= s.last then
+      return true
+    end
+  end
+  return false
 end
 
 ---@param buf integer
@@ -132,8 +171,8 @@ function M.remove_at(buf, lnum)
   local kept = {}
   for _, e in ipairs(entries) do
     resolve(e)
-    if e.buf == buf and not e.orphan and e.first <= lnum and lnum <= e.last then
-      vim.api.nvim_buf_del_extmark(buf, ns, e.mark)
+    if e.buf == buf and not e.orphan and covers(e, lnum) then
+      unplace(e)
     else
       table.insert(kept, e)
     end
@@ -143,6 +182,65 @@ function M.remove_at(buf, lnum)
   render(buf)
   return removed
 end
+
+---@class diffy.Key
+---@field kind "file"|"diff"
+---@field path? string identifies file comments
+---@field source? string identifies diff comments
+
+---@param e diffy.Entry
+---@param key diffy.Key
+local function keyed(e, key)
+  if key.kind == "file" then
+    return e.kind == "file" and e.spans[1].path == key.path
+  end
+  return e.kind == "diff" and e.source == key.source
+end
+
+--- Attaches every comment with `key` to `buf`, wherever `find` now locates each of its spans.
+--- A comment with any span not found becomes an orphan.
+---@param buf integer
+---@param key diffy.Key
+---@param find fun(span: diffy.Span): diffy.Anchor?
+function M.reanchor(buf, key, find)
+  for _, e in ipairs(entries) do
+    if keyed(e, key) then
+      unplace(e)
+      e.buf = buf
+      local anchors = vim.tbl_map(find, e.spans)
+      if #anchors == #e.spans then
+        for i, s in ipairs(e.spans) do
+          s.first, s.last, s.start, s.finish = anchors[i].first, anchors[i].last, anchors[i].start, anchors[i].finish
+          place(buf, s)
+        end
+      end
+    end
+  end
+  render(buf)
+end
+
+---@param buf integer
+local function reanchor_file(buf)
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  M.reanchor(buf, { kind = "file", path = path(buf) }, function(span)
+    local first = match.nearest(#lines, #span.lines, span.first, function(first)
+      for k, w in ipairs(span.lines) do
+        if lines[first + k - 1] ~= w.text then
+          return false
+        end
+      end
+      return true
+    end)
+    return first and { first = first, last = first + #span.lines - 1, start = first, finish = first + #span.lines - 1 }
+  end)
+end
+
+vim.api.nvim_create_autocmd("BufReadPost", {
+  group = vim.api.nvim_create_augroup("diffy", { clear = true }),
+  callback = function(ev)
+    reanchor_file(ev.buf)
+  end,
+})
 
 function M.clear()
   for _, e in ipairs(entries) do

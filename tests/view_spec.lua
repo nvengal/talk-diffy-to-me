@@ -46,6 +46,11 @@ describe(":Diffy", function()
   before_each(function()
     comments.clear()
     vim.cmd("silent! tabonly")
+    for _, b in ipairs(vim.api.nvim_list_bufs()) do
+      if vim.api.nvim_buf_get_name(b):match("^diffy://") then
+        vim.api.nvim_buf_delete(b, { force = true })
+      end
+    end
     diff_output(sample)
     notes = {}
     vim.notify = function(msg, level)
@@ -148,11 +153,105 @@ describe(":Diffy", function()
     assert.are.same({ msg = "diffy: legacy.go does not exist in the working copy", level = vim.log.levels.ERROR }, notes[#notes])
   end)
 
-  it("reopening the same diff replaces its tab", function()
-    vim.cmd("Diffy")
-    vim.cmd("tabfirst")
-    vim.cmd("Diffy")
-    assert.are.equal(2, vim.fn.tabpagenr("$"))
+  describe("refresh", function()
+    local function with(at, extra)
+      local out = vim.list_slice(sample, 1, at - 1)
+      vim.list_extend(out, extra)
+      return vim.list_extend(out, vim.list_slice(sample, at))
+    end
+
+    local function sign_lines(buf)
+      return vim.tbl_map(function(s)
+        return s.lnum
+      end, vim.fn.sign_getplaced(buf, { group = "*" })[1].signs)
+    end
+
+    local function commented_diff()
+      vim.cmd("Diffy")
+      answer_input("propagate?")
+      vim.cmd("17DiffyComment")
+      return vim.api.nvim_get_current_buf()
+    end
+
+    it(":e re-runs jj and moves diff comments with their lines", function()
+      local buf = commented_diff()
+      local updated = with(17, { "+\t// one", "+\t// two" })
+      diff_output(updated)
+      vim.cmd("edit")
+
+      assert.are.same(updated, vim.api.nvim_buf_get_lines(buf, 0, -1, false))
+      assert.is_false(vim.bo[buf].modifiable)
+      local c = comments.all()[1]
+      assert.is_false(c.orphan)
+      assert.are.same({ { path = "greeting.go", start = 12, finish = 12 } }, c.spans)
+      assert.are.same({ 19 }, sign_lines(buf))
+    end)
+
+    it(":e orphans a diff comment whose lines are gone, keeping it to send", function()
+      local buf = commented_diff()
+      local changed = vim.deepcopy(sample)
+      changed[17] = "+\treturn err"
+      diff_output(changed)
+      vim.cmd("edit")
+
+      local c = comments.all()[1]
+      assert.is_true(c.orphan)
+      assert.are.equal("propagate?", c.body)
+      assert.are.same({}, sign_lines(buf))
+    end)
+
+    it(":e keeps the old diff when jj fails", function()
+      local buf = commented_diff()
+      vim.env.JJ_FAIL = "1"
+      vim.cmd("edit")
+      vim.env.JJ_FAIL = nil
+
+      assert.are.same(sample, vim.api.nvim_buf_get_lines(buf, 0, -1, false))
+      assert.are.equal(vim.log.levels.ERROR, notes[#notes].level)
+      assert.are.same({ 17 }, sign_lines(buf))
+    end)
+
+    it(":e keeps the old diff when there are no changes left", function()
+      local buf = commented_diff()
+      diff_output({})
+      vim.cmd("edit")
+
+      assert.are.same(sample, vim.api.nvim_buf_get_lines(buf, 0, -1, false))
+      assert.are.same({ msg = "diffy: no changes", level = vim.log.levels.WARN }, notes[#notes])
+    end)
+
+    it(":Diffy with the same arguments returns to its tab and refreshes it", function()
+      local buf = commented_diff()
+      vim.cmd("tabfirst")
+      diff_output(with(17, { "+\t// one" }))
+      vim.cmd("Diffy")
+
+      assert.are.equal(2, vim.fn.tabpagenr("$"))
+      assert.are.equal(buf, vim.api.nvim_get_current_buf())
+      assert.are.same({ 18 }, sign_lines(buf))
+    end)
+
+    it("leaves another diff's comments alone", function()
+      local parent = commented_diff()
+      vim.cmd("Diffy --from main")
+      answer_input("on main")
+      vim.cmd("17DiffyComment")
+      diff_output(with(17, { "+\t// one" }))
+      vim.cmd("edit")
+
+      assert.are.same({ 17 }, sign_lines(parent))
+      assert.are.same({ 18 }, sign_lines(vim.api.nvim_get_current_buf()))
+    end)
+
+    it("a closed diff opened again picks its comments back up", function()
+      local buf = commented_diff()
+      vim.cmd("bwipeout " .. buf)
+      assert.is_true(comments.all()[1].orphan)
+
+      vim.cmd("Diffy")
+      assert.is_false(comments.all()[1].orphan)
+      assert.are.same({ 17 }, sign_lines(vim.api.nvim_get_current_buf()))
+    end)
   end)
 
   it("reports jj's error and opens nothing", function()

@@ -1,19 +1,22 @@
+local comments = require("diffy.comments")
 local diff = require("diffy.diff")
 local notify = require("diffy.notify")
 
 local M = {}
 
----@class diffy.View
----@field rows diffy.Row[]
----@field source string
----@field root string jj workspace root, which diff paths are relative to
-
----@type table<integer, diffy.View>
-local views = {}
-
 ---@class diffy.ViewOpts
 ---@field from? string revset to review against
 ---@field paths string[]
+
+---@class diffy.View
+---@field opts diffy.ViewOpts
+---@field source string
+---@field root string jj workspace root, which diff paths are relative to
+---@field lines string[] the diff as last shown
+---@field rows diffy.Row[]
+
+---@type table<integer, diffy.View>
+local views = {}
 
 ---@param opts diffy.ViewOpts
 local function describe_source(opts)
@@ -25,7 +28,7 @@ local function describe_source(opts)
 end
 
 ---@param opts diffy.ViewOpts
----@return string[]? lines, string? err
+---@return string[]? lines the diff, or nil after telling the user why there is none
 local function load(opts)
   local cmd = { "jj", "diff", "--git" }
   if opts.from then
@@ -37,39 +40,42 @@ local function load(opts)
   end
   local res = vim.system(cmd, { text = true }):wait()
   if res.code ~= 0 then
-    return nil, table.concat(cmd, " ") .. ": " .. vim.trim(res.stderr or "")
+    return notify(table.concat(cmd, " ") .. ": " .. vim.trim(res.stderr or ""), vim.log.levels.ERROR)
   end
-  return vim.split(res.stdout, "\n", { plain = true, trimempty = true })
-end
-
----@param opts diffy.ViewOpts
-function M.open(opts)
-  local lines, err = load(opts)
-  if not lines then
-    return notify(err, vim.log.levels.ERROR)
-  end
+  local lines = vim.split(res.stdout, "\n", { plain = true, trimempty = true })
   if #lines == 0 then
     return notify("no changes", vim.log.levels.WARN)
   end
+  return lines
+end
 
-  local source = describe_source(opts)
-  for old, v in pairs(views) do
-    if v.source == source then
-      vim.api.nvim_buf_delete(old, { force = true })
-    end
-  end
-
-  vim.cmd.tabnew()
-  local buf = vim.api.nvim_get_current_buf()
-  vim.api.nvim_buf_set_name(buf, "diffy://" .. source)
+---@param buf integer
+---@param lines string[]
+local function show(buf, lines)
+  local v = views[buf]
+  vim.bo[buf].modifiable = true
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-  vim.bo[buf].buftype = "nofile"
-  vim.bo[buf].bufhidden = "hide"
-  vim.bo[buf].swapfile = false
-  vim.bo[buf].filetype = "diff"
   vim.bo[buf].modifiable = false
+  vim.bo[buf].filetype = "diff"
+  v.lines, v.rows = lines, diff.parse(lines)
+  comments.reanchor(buf, { kind = "diff", source = v.source }, function(span)
+    return diff.find(v.rows, span)
+  end)
+end
 
-  views[buf] = { rows = diff.parse(lines), source = source, root = vim.fs.root(vim.fn.getcwd(), ".jj") }
+---@param opts diffy.ViewOpts
+---@param source string
+---@return integer buf
+local function create(opts, source)
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_name(buf, "diffy://" .. source)
+  views[buf] = { opts = opts, source = source, root = vim.fs.root(vim.fn.getcwd(), ".jj"), lines = {}, rows = {} }
+  vim.api.nvim_create_autocmd("BufReadCmd", {
+    buffer = buf,
+    callback = function()
+      show(buf, load(opts) or views[buf].lines)
+    end,
+  })
   vim.api.nvim_create_autocmd("BufWipeout", {
     buffer = buf,
     once = true,
@@ -80,6 +86,35 @@ function M.open(opts)
   vim.keymap.set("n", "gf", function()
     M.jump(buf, vim.fn.line("."))
   end, { buffer = buf, desc = "Open file at this line" })
+  return buf
+end
+
+---@param buf integer
+local function focus(buf)
+  local win = vim.fn.win_findbuf(buf)[1]
+  if win then
+    vim.api.nvim_set_current_win(win)
+  else
+    vim.cmd("tab sbuffer " .. buf)
+  end
+end
+
+---@param opts diffy.ViewOpts
+function M.open(opts)
+  local lines = load(opts)
+  if not lines then
+    return
+  end
+  local source = describe_source(opts)
+  local buf
+  for b, v in pairs(views) do
+    if v.source == source then
+      buf = b
+    end
+  end
+  buf = buf or create(opts, source)
+  focus(buf)
+  show(buf, lines)
 end
 
 ---@param buf integer
