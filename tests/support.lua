@@ -3,6 +3,10 @@ local comments = require("diffy.comments")
 local M = {}
 
 function M.reset()
+  vim.cmd.stopinsert()
+  for _, win in ipairs(M.floats()) do
+    vim.api.nvim_win_close(win, true)
+  end
   comments.remove(vim.tbl_map(function(c)
     return c.id
   end, comments.all()))

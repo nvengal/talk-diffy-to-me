@@ -89,7 +89,8 @@ buffer you closed.
 ### Writing comments
 
 `:DiffyComment` opens a small markdown float, already in insert mode.
-Bodies can span lines.
+Bodies can span lines. Commenting on exactly the lines of an existing
+comment opens that comment for editing instead.
 
 | key            | action |
 |----------------|--------|

@@ -71,6 +71,44 @@ describe("commands", function()
     assert.are.equal("", vim.api.nvim_win_get_config(0).relative)
   end)
 
+  it(":DiffyComment on exactly the range of a comment edits that comment", function()
+    file_buf({ "a", "b", "c" })
+    vim.cmd("2,3DiffyComment")
+    type_body("first")
+    keys(":2,3DiffyComment<CR>")
+
+    assert.are.same({ "first" }, vim.api.nvim_buf_get_lines(0, 0, -1, false))
+    keys("A, again<C-s>")
+    assert.are.same({ "first, again" }, vim.tbl_map(function(c)
+      return c.body
+    end, comments.all()))
+  end)
+
+  it(":DiffyComment on a range overlapping a comment adds another", function()
+    file_buf({ "a", "b", "c" })
+    vim.cmd("2,3DiffyComment")
+    type_body("first")
+    vim.cmd("2DiffyComment")
+    type_body("second")
+    vim.cmd("1,3DiffyComment")
+    type_body("third")
+
+    assert.are.equal(3, #comments.all())
+  end)
+
+  it(":DiffyComment where an orphaned comment last was adds a new comment", function()
+    local buf = file_buf({ "a", "b", "c" })
+    vim.cmd("2DiffyComment")
+    type_body("on b")
+    vim.api.nvim_buf_set_lines(buf, 1, 2, false, {})
+    vim.cmd("2DiffyComment")
+    type_body("on c")
+
+    assert.are.same({ "on b", "on c" }, vim.tbl_map(function(c)
+      return c.body
+    end, comments.all()))
+  end)
+
   it(":DiffyDelete removes comments on the cursor line", function()
     file_buf({ "a", "b" })
     vim.cmd("2DiffyComment")

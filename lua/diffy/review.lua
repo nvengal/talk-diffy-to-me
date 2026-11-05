@@ -108,15 +108,7 @@ function M.open(opts)
     render()
   end, "Delete this comment")
   map("<CR>", function()
-    local c = focused()
-    editor.open({
-      title = "Edit comment on " .. payload.location(c.spans),
-      body = c.body,
-      on_save = function(body)
-        comments.set_body(c.id, body)
-        render()
-      end,
-    })
+    editor.edit(focused(), render)
   end, "Edit this comment")
   map("gf", function()
     local buf, row = comments.location(focused().id)

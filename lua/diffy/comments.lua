@@ -140,22 +140,26 @@ function M.add(buf, body, target)
   render(buf)
 end
 
+---@param e diffy.Entry
+---@return diffy.Comment
+local function record(e)
+  resolve(e)
+  return {
+    id = e.id,
+    kind = e.kind,
+    source = e.source,
+    spans = vim.tbl_map(function(s)
+      return { path = s.path, start = s.start, finish = s.finish }
+    end, e.spans),
+    body = e.body,
+    orphan = e.orphan,
+    snapshot = e.snapshot,
+  }
+end
+
 ---@return diffy.Comment[]
 function M.all()
-  return vim.tbl_map(function(e)
-    resolve(e)
-    return {
-      id = e.id,
-      kind = e.kind,
-      source = e.source,
-      spans = vim.tbl_map(function(s)
-        return { path = s.path, start = s.start, finish = s.finish }
-      end, e.spans),
-      body = e.body,
-      orphan = e.orphan,
-      snapshot = e.snapshot,
-    }
-  end, entries)
+  return vim.tbl_map(record, entries)
 end
 
 ---@param e diffy.Entry
@@ -218,6 +222,19 @@ local function entry(id)
   for _, e in ipairs(entries) do
     if e.id == id then
       return e
+    end
+  end
+end
+
+---@param buf integer
+---@param first integer 1-based buffer row, inclusive
+---@param last integer
+---@return diffy.Comment? the comment covering exactly these rows
+function M.find(buf, first, last)
+  for _, e in ipairs(entries) do
+    local c = record(e)
+    if e.buf == buf and not c.orphan and e.spans[1].first == first and e.spans[#e.spans].last == last then
+      return c
     end
   end
 end

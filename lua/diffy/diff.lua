@@ -122,6 +122,48 @@ function M.find(rows, span)
 end
 
 ---@param rows diffy.Row[]
+---@param first integer
+---@param last integer
+---@return diffy.Span
+local function span_of(rows, first, last)
+  local lines = {}
+  for i = first, last do
+    table.insert(lines, { kind = rows[i].kind, text = rows[i].text })
+  end
+  return { path = rows[first].path, first = first, last = last, lines = lines }
+end
+
+--- Where the line at `row` of `old` is in `new`, judged by its text and up to two
+--- neighbours on each side of the same sort (code, or headers) in its file, else
+--- by its text alone.
+---@param old diffy.Row[]
+---@param new diffy.Row[]
+---@param row integer
+---@return integer?
+function M.follow(old, new, row)
+  local r = old[row]
+  if not r then
+    return nil
+  end
+  local function near(i)
+    return old[i] and old[i].path == r.path and (old[i].kind == "") == (r.kind == "")
+  end
+  local first, last = row, row
+  while first > row - 2 and near(first - 1) do
+    first = first - 1
+  end
+  while last < row + 2 and near(last + 1) do
+    last = last + 1
+  end
+  for _, window in ipairs({ { first, last }, { row, row } }) do
+    local found = M.find(new, span_of(old, window[1], window[2]))
+    if found then
+      return found.first + row - window[1]
+    end
+  end
+end
+
+---@param rows diffy.Row[]
 ---@param lnum integer 1-based row
 ---@return string path, integer line
 function M.jump(rows, lnum)

@@ -201,3 +201,50 @@ describe("diff.find", function()
     assert.is_nil(diff.find(diff.parse({ "diff --git a/b.go b/b.go", "@@ -0,0 +1 @@", "+\treturn nil" }), span))
   end)
 end)
+
+describe("diff.follow", function()
+  local lines = vim.fn.readfile("fixtures/sample.diff")
+
+  local function with(at, extra)
+    local out = vim.list_slice(lines, 1, at - 1)
+    vim.list_extend(out, extra)
+    return vim.list_extend(out, vim.list_slice(lines, at))
+  end
+
+  it("keeps a code line under the cursor when lines are added above it", function()
+    assert.are.equal(19, diff.follow(sample, diff.parse(with(17, { "+\t// one", "+\t// two" })), 17))
+  end)
+
+  it("tells repeated lines apart by their neighbours", function()
+    local before = diff.parse({ "diff --git a/a b/a", "@@ -0,0 +1,3 @@", "+}", "+x", "+}" })
+    local after = diff.parse({ "diff --git a/a b/a", "@@ -0,0 +1,6 @@", "+a", "+b", "+c", "+}", "+x", "+}" })
+    assert.are.equal(8, diff.follow(before, after, 5))
+  end)
+
+  it("takes a code line's neighbours from code, not from its hunk header", function()
+    local before = diff.parse({ "diff --git a/a b/a", "@@ -1 +1 @@", "+}", "@@ -10 +10,2 @@", "+}", "+x" })
+    local after = diff.parse({ "diff --git a/a b/a", "@@ -1 +1,2 @@", "+new", "+}", "@@ -10 +11,2 @@", "+}", "+x" })
+    assert.are.equal(6, diff.follow(before, after, 5))
+  end)
+
+  it("keeps a header line under the cursor when a file is added above it", function()
+    local after = diff.parse(with(1, { "diff --git a/z.go b/z.go", "@@ -0,0 +1 @@", "+package z" }))
+    assert.are.equal(22, diff.follow(sample, after, 19))
+  end)
+
+  it("falls back to the line alone when its neighbours changed", function()
+    local changed = vim.deepcopy(lines)
+    changed[16], changed[18] = "+\tlog(name)", "+}"
+    assert.are.equal(17, diff.follow(sample, diff.parse(changed), 17))
+  end)
+
+  it("has nothing to follow when the old diff had no such line", function()
+    assert.is_nil(diff.follow({}, sample, 1))
+  end)
+
+  it("gives up when the line itself is gone", function()
+    local changed = vim.deepcopy(lines)
+    changed[17] = "+\treturn err"
+    assert.is_nil(diff.follow(sample, diff.parse(changed), 17))
+  end)
+end)

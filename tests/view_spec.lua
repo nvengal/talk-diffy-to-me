@@ -79,6 +79,18 @@ describe(":Diffy", function()
     assert.are.same({ { kind = "+", text = "\treturn nil" } }, c.snapshot)
   end)
 
+  it("edits a diff comment when its rows are commented on again", function()
+    vim.cmd("Diffy")
+    vim.cmd("17,18DiffyComment")
+    type_body("first")
+    vim.cmd("17,18DiffyComment")
+    type_body("revised")
+
+    assert.are.same({ "revised" }, vim.tbl_map(function(c)
+      return c.body
+    end, comments.all()))
+  end)
+
   it("defaults the source to the parent revision", function()
     vim.cmd("Diffy")
     vim.cmd("17DiffyComment")
@@ -174,6 +186,53 @@ describe(":Diffy", function()
       assert.is_false(c.orphan)
       assert.are.same({ { path = "greeting.go", start = 12, finish = 12 } }, c.spans)
       assert.are.same({ 19 }, sign_lines(buf))
+    end)
+
+    local function place(row, top)
+      vim.api.nvim_win_set_cursor(0, { row, 0 })
+      vim.fn.winrestview({ topline = top })
+    end
+
+    local function placed()
+      return { vim.fn.line("."), vim.fn.line("w0") }
+    end
+
+    it(":e keeps the cursor on its line, at the same height on screen", function()
+      vim.cmd("Diffy")
+      place(17, 10)
+      diff_output(with(17, { "+\t// one", "+\t// two" }))
+      vim.cmd("edit")
+
+      assert.are.same({ 19, 12 }, placed())
+    end)
+
+    it(":Diffy again keeps the cursor on its line too", function()
+      vim.cmd("Diffy")
+      place(17, 10)
+      diff_output(with(1, { "diff --git a/z.go b/z.go", "@@ -0,0 +1 @@", "+package z" }))
+      vim.cmd("Diffy")
+
+      assert.are.same({ 20, 13 }, placed())
+    end)
+
+    it(":e leaves the cursor where it was when its line is gone", function()
+      vim.cmd("Diffy")
+      place(17, 10)
+      local changed = vim.deepcopy(sample)
+      changed[17] = "+\treturn err"
+      diff_output(changed)
+      vim.cmd("edit")
+
+      assert.are.same({ 17, 10 }, placed())
+    end)
+
+    it(":e moves the cursor to the end when the diff shrinks past it", function()
+      vim.cmd("Diffy")
+      place(44, 30)
+      diff_output(vim.list_slice(sample, 1, 18))
+      vim.cmd("edit")
+
+      assert.are.equal(18, vim.fn.line("."))
     end)
 
     it(":e orphans a diff comment whose lines are gone, keeping it to send", function()

@@ -46,6 +46,10 @@ end
 ---@param line2 integer
 function M.comment(line1, line2)
   local buf = vim.api.nvim_get_current_buf()
+  local existing = comments.find(buf, line1, line2)
+  if existing then
+    return editor.edit(existing)
+  end
   local target, err
   if view.owns(buf) then
     target, err = view.target(buf, line1, line2)

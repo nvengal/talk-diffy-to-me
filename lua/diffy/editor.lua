@@ -1,3 +1,6 @@
+local comments = require("diffy.comments")
+local payload = require("diffy.payload")
+
 local M = {}
 
 ---@class diffy.EditorOpts
@@ -60,6 +63,21 @@ function M.open(opts)
   if opts.insert then
     vim.cmd.startinsert()
   end
+end
+
+---@param c diffy.Comment
+---@param on_saved? fun()
+function M.edit(c, on_saved)
+  M.open({
+    title = "Edit comment on " .. payload.location(c.spans),
+    body = c.body,
+    on_save = function(body)
+      comments.set_body(c.id, body)
+      if on_saved then
+        on_saved()
+      end
+    end,
+  })
 end
 
 return M

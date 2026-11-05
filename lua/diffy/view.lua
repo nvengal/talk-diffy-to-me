@@ -15,6 +15,11 @@ local M = {}
 ---@field lines string[] the diff as last shown
 ---@field rows diffy.Row[]
 
+---@class diffy.Placement
+---@field win integer
+---@field row integer cursor row
+---@field height integer cursor row's height on screen, counted from the top line
+
 ---@type table<integer, diffy.View>
 local views = {}
 
@@ -50,9 +55,21 @@ local function load(opts)
 end
 
 ---@param buf integer
+---@return diffy.Placement[]
+local function placements(buf)
+  return vim.tbl_map(function(win)
+    return vim.api.nvim_win_call(win, function()
+      return { win = win, row = vim.fn.line("."), height = vim.fn.line(".") - vim.fn.line("w0") }
+    end)
+  end, vim.fn.win_findbuf(buf))
+end
+
+---@param buf integer
 ---@param lines string[]
+---@return diffy.Row[] old the rows shown before
 local function show(buf, lines)
   local v = views[buf]
+  local old = v.rows
   vim.bo[buf].modifiable = true
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
   vim.bo[buf].modifiable = false
@@ -61,6 +78,23 @@ local function show(buf, lines)
   comments.reanchor(buf, { kind = "diff", source = v.source }, function(span)
     return diff.find(v.rows, span)
   end)
+  return old
+end
+
+--- Puts each window's cursor back on the line it was on in `old`, at the same height on screen.
+---@param buf integer
+---@param old diffy.Row[]
+---@param placed diffy.Placement[]
+local function restore(buf, old, placed)
+  local rows = views[buf].rows
+  for _, p in ipairs(placed) do
+    if vim.api.nvim_win_is_valid(p.win) and vim.api.nvim_win_get_buf(p.win) == buf then
+      local row = math.min(diff.follow(old, rows, p.row) or p.row, #rows)
+      vim.api.nvim_win_call(p.win, function()
+        vim.fn.winrestview({ lnum = row, col = 0, topline = math.max(1, row - p.height) })
+      end)
+    end
+  end
 end
 
 ---@param opts diffy.ViewOpts
@@ -70,10 +104,24 @@ local function create(opts, source)
   local buf = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_buf_set_name(buf, "diffy://" .. source)
   views[buf] = { opts = opts, source = source, root = vim.fs.root(vim.fn.getcwd(), ".jj"), lines = {}, rows = {} }
+  local placed = {}
+  vim.api.nvim_create_autocmd("BufUnload", {
+    buffer = buf,
+    callback = function()
+      placed = placements(buf)
+    end,
+  })
   vim.api.nvim_create_autocmd("BufReadCmd", {
     buffer = buf,
     callback = function()
-      show(buf, load(opts) or views[buf].lines)
+      local old = show(buf, load(opts) or views[buf].lines)
+      vim.api.nvim_create_autocmd("BufWinEnter", {
+        buffer = buf,
+        once = true,
+        callback = function()
+          restore(buf, old, placed)
+        end,
+      })
     end,
   })
   vim.api.nvim_create_autocmd("BufWipeout", {
@@ -114,7 +162,8 @@ function M.open(opts)
   end
   buf = buf or create(opts, source)
   focus(buf)
-  show(buf, lines)
+  local placed = placements(buf)
+  restore(buf, show(buf, lines), placed)
 end
 
 ---@param buf integer
