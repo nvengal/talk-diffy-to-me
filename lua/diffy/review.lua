@@ -2,6 +2,7 @@ local comments = require("diffy.comments")
 local editor = require("diffy.editor")
 local notify = require("diffy.notify")
 local payload = require("diffy.payload")
+local sender = require("diffy.send")
 
 local M = {}
 
@@ -26,11 +27,7 @@ local function scratch(ft)
   return buf
 end
 
----@class diffy.ReviewOpts
----@field send fun(list: diffy.Comment[], on_sent: fun())
-
----@param opts diffy.ReviewOpts
-function M.open(opts)
+function M.open()
   if #comments.all() == 0 then
     return notify("no comments to review", vim.log.levels.WARN)
   end
@@ -98,10 +95,10 @@ function M.open(opts)
   end
 
   map("s", function()
-    opts.send({ focused() }, render)
+    sender.send({ focused() }, render)
   end, "Send this comment")
   map("S", function()
-    opts.send(shown, render)
+    sender.send(shown, render)
   end, "Send all comments")
   map("dd", function()
     comments.remove({ focused().id })

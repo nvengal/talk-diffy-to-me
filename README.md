@@ -103,10 +103,13 @@ buffer you closed.
 Bodies can span lines. Commenting on exactly the lines of an existing
 comment opens that comment for editing instead.
 
-| key            | action |
-|----------------|--------|
-| `:w`, `<C-s>`  | save   |
-| `q`            | cancel |
+Type the comment, `<Esc>`, then:
+
+| key          | action                      |
+|--------------|-----------------------------|
+| `<CR>`, `:w` | save                        |
+| `s`          | save and send this comment  |
+| `q`          | cancel                      |
 
 A blank body saves nothing.
 

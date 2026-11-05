@@ -82,7 +82,7 @@ function M.fake_zellij()
   function fake.reset()
     vim.fn.delete(bin .. "/calls.log")
     vim.fn.delete(bin .. "/panes.json")
-    require("diffy").reset_pane()
+    require("diffy.send").reset_pane()
   end
   return fake
 end

@@ -130,6 +130,7 @@ end
 ---@param buf integer
 ---@param body string
 ---@param target diffy.Target
+---@return integer id
 function M.add(buf, body, target)
   local e = vim.tbl_extend("force", target, { id = next_id, buf = buf, body = body, orphan = false })
   next_id = next_id + 1
@@ -138,6 +139,7 @@ function M.add(buf, body, target)
   end
   table.insert(entries, e)
   render(buf)
+  return e.id
 end
 
 ---@param e diffy.Entry
@@ -249,6 +251,12 @@ function M.at(buf, lnum)
       return c
     end
   end
+end
+
+---@param id integer
+---@return diffy.Comment
+function M.get(id)
+  return record(entry(id))
 end
 
 ---@param id integer

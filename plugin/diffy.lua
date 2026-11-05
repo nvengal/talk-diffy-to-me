@@ -23,5 +23,5 @@ vim.api.nvim_create_user_command("DiffyReview", function()
 end, { desc = "Review pending comments: send, edit, delete, or jump to them" })
 
 vim.api.nvim_create_user_command("DiffyRepick", function()
-  require("diffy").reset_pane()
+  require("diffy.send").reset_pane()
 end, { desc = "Forget the chosen zellij pane; ask again on next send" })

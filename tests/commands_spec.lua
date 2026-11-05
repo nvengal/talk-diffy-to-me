@@ -53,19 +53,33 @@ describe("commands", function()
     assert.are.equal("", vim.api.nvim_win_get_config(0).relative)
   end)
 
-  it(":DiffyComment starts typing straight away and saves with <C-s>", function()
-    file_buf({ "a" })
-    vim.api.nvim_feedkeys(vim.keycode(":DiffyComment<CR>hello<C-s>"), "x!", false)
+  it(":DiffyComment starts typing straight away and saves with <CR> from normal mode", function()
+    local buf = file_buf({ "a" })
+    keys(":DiffyComment<CR>hello<Esc><CR>")
 
-    assert.are.equal("n", vim.fn.mode())
+    assert.are.equal(buf, vim.api.nvim_get_current_buf())
 
     assert.are.equal("hello", comments.all()[1].body)
+  end)
+
+  it(":DiffyComment's s saves and sends just that comment", function()
+    zellij.panes({ zellij.pane(1, "nvim"), zellij.pane(2, "claude") })
+    file_buf({ "a", "b" })
+    vim.cmd("1DiffyComment")
+    type_body("older")
+    keys(":2DiffyComment<CR>urgent<Esc>s")
+
+    assert.truthy(zellij.calls():find("urgent", 1, true))
+    assert.falsy(zellij.calls():find("older", 1, true))
+    assert.are.same({ "older" }, vim.tbl_map(function(c)
+      return c.body
+    end, comments.all()))
   end)
 
   it(":DiffyComment adds nothing when cancelled with q or saved empty", function()
     file_buf({ "a" })
     keys(":DiffyComment<CR><Esc>q")
-    keys(":DiffyComment<CR><CR>  <C-s>")
+    keys(":DiffyComment<CR><CR>  <Esc><CR>")
 
     assert.are.same({}, comments.all())
     assert.are.equal("", vim.api.nvim_win_get_config(0).relative)
@@ -78,7 +92,7 @@ describe("commands", function()
     keys(":2,3DiffyComment<CR>")
 
     assert.are.same({ "first" }, vim.api.nvim_buf_get_lines(0, 0, -1, false))
-    keys("A, again<C-s>")
+    keys("A, again<Esc><CR>")
     assert.are.same({ "first, again" }, vim.tbl_map(function(c)
       return c.body
     end, comments.all()))

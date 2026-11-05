@@ -97,11 +97,21 @@ describe(":DiffyReview", function()
   it("<CR> edits the focused comment in the comment float, then returns to the list", function()
     vim.cmd("DiffyReview")
     local list = vim.api.nvim_get_current_win()
-    vim.api.nvim_feedkeys(vim.keycode("j<CR>A, revised<C-s>"), "x", false)
+    vim.api.nvim_feedkeys(vim.keycode("j<CR>A, revised<Esc><CR>"), "x", false)
 
     assert.are.same({ "first\nmore detail", "second, revised" }, bodies())
     assert.are.equal(list, vim.api.nvim_get_current_win())
     assert.truthy(lines(0)[2]:find("second, revised", 1, true))
+  end)
+
+  it("s in the edit float saves and sends that comment, updating the list", function()
+    vim.cmd("DiffyReview")
+    vim.api.nvim_feedkeys(vim.keycode("j<CR>A!<Esc>s"), "x", false)
+
+    assert.truthy(zellij.calls():find("second!", 1, true))
+    assert.falsy(zellij.calls():find("first", 1, true))
+    assert.are.same({ "first\nmore detail" }, bodies())
+    assert.are.equal(1, #lines(0))
   end)
 
   it("gf closes the popover and puts the cursor on the comment", function()

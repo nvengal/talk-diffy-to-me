@@ -1,12 +1,14 @@
 local comments = require("diffy.comments")
 local payload = require("diffy.payload")
+local sender = require("diffy.send")
 
 local M = {}
 
 ---@class diffy.EditorOpts
 ---@field title string
 ---@field body string
----@field on_save fun(body: string) called only with a non-blank body
+---@field on_save fun(body: string): integer called only with a non-blank body; returns the comment's id
+---@field after? fun() called once the comment is saved, and again once it is sent
 ---@field insert? boolean start in insert mode
 
 ---@param lines string[]
@@ -37,7 +39,7 @@ function M.open(opts)
     style = "minimal",
     title = " " .. opts.title .. " ",
     title_pos = "center",
-    footer = " :w / <C-s> save · q cancel ",
+    footer = " <CR> save · s send · q cancel ",
     footer_pos = "center",
   })
   vim.wo[win].wrap = true
@@ -49,33 +51,53 @@ function M.open(opts)
     end
   end
 
-  local function save()
+  ---@param send_now boolean
+  local function save(send_now)
     local body = body_of(vim.api.nvim_buf_get_lines(buf, 0, -1, false))
     close()
-    if body ~= "" then
-      opts.on_save(body)
+    if body == "" then
+      return
+    end
+    local id = opts.on_save(body)
+    if opts.after then
+      opts.after()
+    end
+    if send_now then
+      sender.send({ comments.get(id) }, opts.after)
     end
   end
 
-  vim.api.nvim_create_autocmd("BufWriteCmd", { buffer = buf, callback = save })
-  vim.keymap.set({ "n", "i" }, "<C-s>", save, { buffer = buf, desc = "Save comment" })
-  vim.keymap.set("n", "q", close, { buffer = buf, desc = "Cancel" })
+  local function map(lhs, fn, desc)
+    vim.keymap.set("n", lhs, fn, { buffer = buf, desc = desc })
+  end
+  vim.api.nvim_create_autocmd("BufWriteCmd", {
+    buffer = buf,
+    callback = function()
+      save(false)
+    end,
+  })
+  map("<CR>", function()
+    save(false)
+  end, "Save comment")
+  map("s", function()
+    save(true)
+  end, "Save and send this comment")
+  map("q", close, "Cancel")
   if opts.insert then
     vim.cmd.startinsert()
   end
 end
 
 ---@param c diffy.Comment
----@param on_saved? fun()
-function M.edit(c, on_saved)
+---@param after? fun() called once the comment is saved, and again once it is sent
+function M.edit(c, after)
   M.open({
     title = "Edit comment on " .. payload.location(c.spans),
     body = c.body,
+    after = after,
     on_save = function(body)
       comments.set_body(c.id, body)
-      if on_saved then
-        on_saved()
-      end
+      return c.id
     end,
   })
 end

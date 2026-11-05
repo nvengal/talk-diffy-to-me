@@ -51,7 +51,7 @@ describe("keys in the diff buffer", function()
 
   it("c comments on the cursor line", function()
     on(17)
-    keys("cpropagate?<C-s>")
+    keys("cpropagate?<Esc><CR>")
 
     local c = comments.all()[1]
     assert.are.equal("propagate?", c.body)
@@ -60,23 +60,23 @@ describe("keys in the diff buffer", function()
 
   it("c comments on a visual selection", function()
     on(30)
-    keys("Vjjcsentinel?<C-s>")
+    keys("Vjjcsentinel?<Esc><CR>")
 
     assert.are.same({ { path = "math.go", start = 6, finish = 8 } }, comments.all()[1].spans)
   end)
 
   it("<CR> edits the comment under the cursor", function()
     on(17)
-    keys("Vjcfirst<C-s>")
+    keys("Vjcfirst<Esc><CR>")
     on(18)
-    keys("<CR>A, revised<C-s>")
+    keys("<CR>A, revised<Esc><CR>")
 
     assert.are.same({ "first, revised" }, bodies())
   end)
 
   it("<CR> on a line without a comment says so", function()
     on(30)
-    keys("celsewhere<C-s>")
+    keys("celsewhere<Esc><CR>")
     on(17)
     keys("<CR>")
 
@@ -86,7 +86,7 @@ describe("keys in the diff buffer", function()
 
   it("dd deletes the comments on the line", function()
     on(17)
-    keys("cx<C-s>")
+    keys("cx<Esc><CR>")
     assert.are.equal(1, #comments.all())
     keys("dd")
 
@@ -95,15 +95,15 @@ describe("keys in the diff buffer", function()
 
   it("s sends the lone comment and S sends them all", function()
     on(17)
-    keys("cone<C-s>")
+    keys("cone<Esc><CR>")
     keys("s")
     assert.truthy(zellij.calls():find("one", 1, true))
     assert.are.same({}, comments.all())
 
     on(17)
-    keys("ctwo<C-s>")
+    keys("ctwo<Esc><CR>")
     on(30)
-    keys("cthree<C-s>")
+    keys("cthree<Esc><CR>")
     keys("S")
     assert.truthy(zellij.calls():find("three", 1, true))
     assert.are.same({}, comments.all())
@@ -119,7 +119,7 @@ describe("keys in the diff buffer", function()
 
   it("gr opens the review popover straight away", function()
     on(17)
-    keys("cone<C-s>")
+    keys("cone<Esc><CR>")
     keys("gr")
 
     assert.are.equal(2, #support.floats())
