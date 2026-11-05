@@ -223,15 +223,67 @@ describe("commands", function()
     assert.are.equal(1, #comments.all())
   end)
 
-  it(":DiffySend reports an error when nvim is alone in its tab", function()
-    zellij.panes({ zellij.pane(1, "nvim") })
+  describe("when nvim is alone in its tab", function()
+    after_each(function()
+      vim.g.diffy_launch = nil
+    end)
+
+    local function send(body)
+      file_buf({ "a" })
+      vim.cmd("1DiffyComment")
+      type_body(body)
+      vim.cmd("DiffySend")
+    end
+
+    it(":DiffySend launches claude to the right with the comments as its first prompt", function()
+      zellij.panes({ zellij.pane(1, "nvim") })
+      send("first")
+
+      local launch = "action new-pane --direction right --no-focus --cwd " .. vim.fn.getcwd() .. " -- claude "
+      assert.truthy(zellij.calls():find(launch .. "The following are review comments.", 1, true))
+      assert.truthy(zellij.calls():find("first", 1, true))
+      assert.are.same({}, comments.all())
+      assert.are.same({ msg = "diffy: sent 1 comment(s) to a new claude pane", level = vim.log.levels.INFO }, notes[#notes])
+    end)
+
+    it("pastes later sends into the pane it launched", function()
+      zellij.panes({ zellij.pane(1, "nvim") })
+      send("first")
+      send("second")
+
+      assert.truthy(zellij.calls():find("action paste --pane-id 7 -- The following", 1, true))
+      assert.truthy(zellij.calls():find("action send-keys --pane-id 7 -- Enter", 1, true))
+    end)
+
+    it("launches vim.g.diffy_launch instead, with its arguments", function()
+      vim.g.diffy_launch = { "codex", "--full-auto" }
+      zellij.panes({ zellij.pane(1, "nvim") })
+      send("first")
+
+      assert.truthy(zellij.calls():find("-- codex --full-auto The following are review comments.", 1, true))
+    end)
+
+    it("keeps the comments when the launch fails", function()
+      zellij.panes({ zellij.pane(1, "nvim") })
+      vim.env.ZELLIJ_FAIL = "1"
+      send("first")
+      vim.env.ZELLIJ_FAIL = nil
+
+      assert.are.same({ msg = "diffy: zellij action new-pane: pane gone", level = vim.log.levels.ERROR }, notes[#notes])
+      assert.are.equal(1, #comments.all())
+    end)
+  end)
+
+  it(":DiffySend looks for a pane running vim.g.diffy_launch", function()
+    vim.g.diffy_launch = "codex"
+    zellij.panes({ zellij.pane(1, "nvim"), zellij.pane(2, "claude"), zellij.pane(3, "codex") })
     file_buf({ "a" })
     vim.cmd("1DiffyComment")
     type_body("x")
     vim.cmd("DiffySend")
+    vim.g.diffy_launch = nil
 
-    assert.are.same({ msg = "diffy: no other panes in this zellij tab", level = vim.log.levels.ERROR }, notes[#notes])
-    assert.are.equal(1, #comments.all())
+    assert.truthy(zellij.calls():find("action paste --pane-id 3 ", 1, true))
   end)
 
   it(":DiffySend with several pending opens the review popover instead of sending", function()

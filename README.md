@@ -135,6 +135,17 @@ which one to send to. If exactly one has `claude` in its title or command
 (case-insensitive), it is picked without asking. The choice is remembered
 until `:DiffyRepick`.
 
+If Neovim is the only pane in its tab, diffy instead opens `claude` in a
+new pane to its right, with the comments as its first prompt, and sends
+there from then on.
+
+To use another CLI, set `vim.g.diffy_launch` to its command; diffy then
+looks for panes running it and launches it the same way:
+
+```lua
+vim.g.diffy_launch = { "codex", "--full-auto" }
+```
+
 ## Message format
 
 Every send is prefixed with:

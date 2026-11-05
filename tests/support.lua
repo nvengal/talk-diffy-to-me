@@ -53,8 +53,8 @@ function M.floats()
   end, vim.api.nvim_list_wins())
 end
 
---- Puts a `zellij` on PATH that serves `list-panes` from `panes(...)` and logs every other call.
---- With $ZELLIJ_FAIL set, everything but `list-panes` fails.
+--- Puts a `zellij` on PATH that serves `list-panes` from `panes(...)` and logs every other call;
+--- `new-pane` answers as if it opened pane 7. With $ZELLIJ_FAIL set, everything but `list-panes` fails.
 function M.fake_zellij()
   local bin = vim.fn.tempname()
   vim.fn.mkdir(bin, "p")
@@ -63,6 +63,7 @@ function M.fake_zellij()
     'if [ "$2" = list-panes ]; then exec cat "$(dirname "$0")/panes.json"; fi',
     'if [ -n "$ZELLIJ_FAIL" ]; then echo "pane gone" >&2; exit 1; fi',
     'printf "%s\\n" "$*" >> "$(dirname "$0")/calls.log"',
+    'if [ "$2" = new-pane ]; then echo terminal_7; fi',
   }, bin .. "/zellij")
   vim.fn.setfperm(bin .. "/zellij", "rwxr-xr-x")
   vim.env.PATH = bin .. ":" .. vim.env.PATH

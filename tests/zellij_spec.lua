@@ -36,7 +36,7 @@ describe("zellij.candidates", function()
   end)
 end)
 
-describe("zellij.match_claude", function()
+describe("zellij.matching", function()
   it("matches title or command case-insensitively, preferring pane_command", function()
     local panes = {
       pane({ id = 1, title = "Claude Code" }),
@@ -44,6 +44,12 @@ describe("zellij.match_claude", function()
       pane({ id = 3, terminal_command = "claude", pane_command = "zsh" }),
       pane({ id = 4, title = "zsh" }),
     }
-    assert.are.same({ 1, 2 }, ids(zellij.match_claude(panes)))
+    assert.are.same({ 1, 2 }, ids(zellij.matching(panes, "claude")))
+  end)
+
+  it("looks for whichever name it is given", function()
+    local panes = { pane({ id = 1, title = "claude" }), pane({ id = 2, pane_command = "codex" }) }
+    assert.are.same({ 2 }, ids(zellij.matching(panes, "codex")))
+    assert.are.same({ 2 }, ids(zellij.matching(panes, "CodeX")))
   end)
 end)

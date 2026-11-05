@@ -38,11 +38,12 @@ function M.candidates(panes, own_env)
 end
 
 ---@param panes diffy.Pane[]
----@return diffy.Pane[]
-function M.match_claude(panes)
+---@param name string
+---@return diffy.Pane[] the panes whose title or command contains `name`, ignoring case
+function M.matching(panes, name)
+  name = name:lower()
   return vim.tbl_filter(function(p)
-    return (p.title or ""):lower():find("claude", 1, true) ~= nil
-      or M.command(p):lower():find("claude", 1, true) ~= nil
+    return (p.title or ""):lower():find(name, 1, true) ~= nil or M.command(p):lower():find(name, 1, true) ~= nil
   end, panes)
 end
 
@@ -53,6 +54,19 @@ function M.list_panes()
     error("zellij list-panes: " .. vim.trim(res.stderr or ""))
   end
   return vim.json.decode(res.stdout)
+end
+
+--- Runs `argv` in a new pane to the right, leaving focus where it is.
+---@param argv string[]
+---@param cwd string
+---@return integer? pane_id the new pane, when zellij names it, string? err
+function M.launch(argv, cwd)
+  local cmd = { "zellij", "action", "new-pane", "--direction", "right", "--no-focus", "--cwd", cwd, "--" }
+  local res = vim.system(vim.list_extend(cmd, argv), { text = true }):wait()
+  if res.code ~= 0 then
+    return nil, "zellij action new-pane: " .. vim.trim(res.stderr or "")
+  end
+  return tonumber((res.stdout or ""):match("terminal_(%d+)"))
 end
 
 ---@param pane_id integer
