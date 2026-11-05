@@ -1,7 +1,6 @@
 local comments = require("diffy.comments")
 local editor = require("diffy.editor")
 local notify = require("diffy.notify")
-local payload = require("diffy.payload")
 local review = require("diffy.review")
 local sender = require("diffy.send")
 local view = require("diffy.view")
@@ -26,7 +25,6 @@ function M.comment(line1, line2)
     return notify(err, vim.log.levels.ERROR)
   end
   editor.open({
-    title = "Comment on " .. payload.location(target.spans),
     body = "",
     insert = true,
     on_save = function(body)

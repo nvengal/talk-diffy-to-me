@@ -1,11 +1,9 @@
 local comments = require("diffy.comments")
-local payload = require("diffy.payload")
 local sender = require("diffy.send")
 
 local M = {}
 
 ---@class diffy.EditorOpts
----@field title string
 ---@field body string
 ---@field on_save fun(body: string): integer called only with a non-blank body; returns the comment's id
 ---@field after? fun() called once the comment is saved, and again once it is sent
@@ -38,7 +36,7 @@ function M.open(opts)
     col = math.floor((vim.o.columns - width) / 2),
     border = "rounded",
     style = "minimal",
-    title = " " .. opts.title .. " ",
+    title = " diffy ",
     title_pos = "center",
     footer = " ⏎ save · s send · q cancel ",
     footer_pos = "center",
@@ -93,7 +91,6 @@ end
 ---@param after? fun() called once the comment is saved, and again once it is sent
 function M.edit(c, after)
   M.open({
-    title = "Edit comment on " .. payload.location(c.spans),
     body = c.body,
     after = after,
     on_save = function(body)
