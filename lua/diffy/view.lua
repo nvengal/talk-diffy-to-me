@@ -101,7 +101,7 @@ end
 ---@param source string
 ---@return integer buf
 local function create(opts, source)
-  local buf = vim.api.nvim_create_buf(false, true)
+  local buf = vim.api.nvim_create_buf(true, true)
   vim.api.nvim_buf_set_name(buf, "diffy://" .. source)
   views[buf] = { opts = opts, source = source, root = vim.fs.root(vim.fn.getcwd(), ".jj"), lines = {}, rows = {} }
   local placed = {}

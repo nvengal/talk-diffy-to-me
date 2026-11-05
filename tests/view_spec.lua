@@ -42,6 +42,7 @@ describe(":Diffy", function()
 
   before_each(function()
     support.reset()
+    vim.cmd("tabnew")
     vim.cmd("silent! tabonly")
     for _, b in ipairs(vim.api.nvim_list_bufs()) do
       if vim.api.nvim_buf_get_name(b):match("^diffy://") then
@@ -60,6 +61,21 @@ describe(":Diffy", function()
     assert.are.same(sample, vim.api.nvim_buf_get_lines(0, 0, -1, false))
     assert.are.equal("diff", vim.bo.filetype)
     assert.is_false(vim.bo.modifiable)
+  end)
+
+  it("lists the diff with your buffers, so buffer navigation reaches it from a file", function()
+    vim.cmd("Diffy")
+    local diff_buf = vim.api.nvim_get_current_buf()
+    vim.api.nvim_win_set_cursor(0, { 17, 0 })
+    vim.cmd("normal gf")
+    for _ = 1, #vim.fn.getbufinfo({ buflisted = 1 }) do
+      if vim.api.nvim_get_current_buf() == diff_buf then
+        break
+      end
+      vim.cmd("bnext")
+    end
+
+    assert.are.equal(diff_buf, vim.api.nvim_get_current_buf())
   end)
 
   it("reviews against --from and narrows to paths", function()
