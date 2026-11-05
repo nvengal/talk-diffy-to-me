@@ -24,6 +24,7 @@ local M = {}
 ---@field source? string the "from" side of the reviewed diff
 
 ---@class diffy.Comment
+---@field id integer
 ---@field kind "file"|"diff"
 ---@field spans diffy.Location[]
 ---@field snapshot diffy.SnapshotLine[]
@@ -32,6 +33,7 @@ local M = {}
 ---@field orphan boolean
 
 ---@class diffy.Entry : diffy.Target
+---@field id integer
 ---@field buf integer
 ---@field body string
 ---@field orphan boolean
@@ -42,6 +44,7 @@ vim.api.nvim_set_hl(0, "DiffySign", { link = "DiagnosticSignInfo", default = tru
 
 ---@type diffy.Entry[]
 local entries = {}
+local next_id = 1
 
 ---@param e diffy.Entry
 local function resolve(e)
@@ -128,7 +131,8 @@ end
 ---@param body string
 ---@param target diffy.Target
 function M.add(buf, body, target)
-  local e = vim.tbl_extend("force", target, { buf = buf, body = body, orphan = false })
+  local e = vim.tbl_extend("force", target, { id = next_id, buf = buf, body = body, orphan = false })
+  next_id = next_id + 1
   for _, s in ipairs(e.spans) do
     place(buf, s)
   end
@@ -141,6 +145,7 @@ function M.all()
   return vim.tbl_map(function(e)
     resolve(e)
     return {
+      id = e.id,
       kind = e.kind,
       source = e.source,
       spans = vim.tbl_map(function(s)
@@ -164,23 +169,73 @@ local function covers(e, lnum)
   return false
 end
 
----@param buf integer
----@param lnum integer 1-based buffer row
+---@param doomed fun(e: diffy.Entry): boolean
 ---@return integer removed
-function M.remove_at(buf, lnum)
-  local kept = {}
+local function drop(doomed)
+  local kept, touched = {}, {}
   for _, e in ipairs(entries) do
     resolve(e)
-    if e.buf == buf and not e.orphan and covers(e, lnum) then
+    if doomed(e) then
       unplace(e)
+      touched[e.buf] = true
     else
       table.insert(kept, e)
     end
   end
   local removed = #entries - #kept
   entries = kept
-  render(buf)
+  for buf in pairs(touched) do
+    if vim.api.nvim_buf_is_valid(buf) then
+      render(buf)
+    end
+  end
   return removed
+end
+
+---@param buf integer
+---@param lnum integer 1-based buffer row
+---@return integer removed
+function M.remove_at(buf, lnum)
+  return drop(function(e)
+    return e.buf == buf and not e.orphan and covers(e, lnum)
+  end)
+end
+
+---@param ids integer[]
+function M.remove(ids)
+  local named = {}
+  for _, id in ipairs(ids) do
+    named[id] = true
+  end
+  drop(function(e)
+    return named[e.id] == true
+  end)
+end
+
+---@param id integer
+---@return diffy.Entry?
+local function entry(id)
+  for _, e in ipairs(entries) do
+    if e.id == id then
+      return e
+    end
+  end
+end
+
+---@param id integer
+---@param body string
+function M.set_body(id, body)
+  entry(id).body = body
+end
+
+---@param id integer
+---@return integer? buf, integer? row 1-based first row, or nothing for an orphan
+function M.location(id)
+  local e = entry(id)
+  resolve(e)
+  if not e.orphan then
+    return e.buf, e.spans[1].first
+  end
 end
 
 ---@class diffy.Key
@@ -241,15 +296,5 @@ vim.api.nvim_create_autocmd("BufReadPost", {
     reanchor_file(ev.buf)
   end,
 })
-
-function M.clear()
-  for _, e in ipairs(entries) do
-    if vim.api.nvim_buf_is_valid(e.buf) then
-      vim.api.nvim_buf_clear_namespace(e.buf, ns, 0, -1)
-      vim.api.nvim_buf_clear_namespace(e.buf, sign_ns, 0, -1)
-    end
-  end
-  entries = {}
-end
 
 return M

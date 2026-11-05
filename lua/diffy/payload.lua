@@ -47,6 +47,12 @@ local function fenced(c)
   return table.concat(out, "\n") .. "\n"
 end
 
+---@param c diffy.Comment
+---@return string the comment as it appears in the payload
+function M.section(c)
+  return ("## %s\n\n%s\n\n"):format(M.location(c.spans), c.body) .. fenced(c)
+end
+
 ---@param comments diffy.Comment[]
 ---@return string
 function M.build(comments)
@@ -56,8 +62,7 @@ function M.build(comments)
     table.insert(out, "\nDiff from: " .. table.concat(from, ", ") .. "\n")
   end
   for _, c in ipairs(comments) do
-    table.insert(out, ("\n## %s\n\n%s\n\n"):format(M.location(c.spans), c.body))
-    table.insert(out, fenced(c))
+    table.insert(out, "\n" .. M.section(c))
   end
   return table.concat(out)
 end

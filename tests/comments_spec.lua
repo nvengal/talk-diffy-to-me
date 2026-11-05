@@ -1,4 +1,5 @@
 local comments = require("diffy.comments")
+local support = require("support")
 
 local function file_buf(lines)
   local buf = vim.api.nvim_create_buf(true, false)
@@ -7,12 +8,7 @@ local function file_buf(lines)
   return buf
 end
 
-local function sign_lines(buf)
-  local placed = vim.fn.sign_getplaced(buf, { group = "*" })[1].signs
-  return vim.tbl_map(function(s)
-    return s.lnum
-  end, placed)
-end
+local sign_lines = support.sign_lines
 
 local function add(buf, first, last, body)
   comments.add(buf, body, comments.file_target(buf, first, last))
@@ -23,21 +19,23 @@ local function lines_of(c)
 end
 
 describe("comments", function()
-  before_each(comments.clear)
+  before_each(support.reset)
 
   it("records a file comment with its path, range, and snapshot", function()
     local buf = file_buf({ "a", "b", "c", "d" })
     add(buf, 2, 3, "why?")
 
+    local got = comments.all()
     assert.are.same({
       {
+        id = got[1].id,
         kind = "file",
         spans = { { path = "sub/x" .. buf .. ".go", start = 2, finish = 3 } },
         body = "why?",
         orphan = false,
         snapshot = { { kind = " ", text = "b" }, { kind = " ", text = "c" } },
       },
-    }, comments.all())
+    }, got)
   end)
 
   describe("path", function()
@@ -143,8 +141,10 @@ describe("comments", function()
       snapshot = snapshot,
     })
 
+    local got = comments.all()
     assert.are.same({
       {
+        id = got[1].id,
         kind = "diff",
         source = "@-",
         spans = { { path = "a.go", start = 38, finish = 38 } },
@@ -152,7 +152,7 @@ describe("comments", function()
         orphan = false,
         snapshot = snapshot,
       },
-    }, comments.all())
+    }, got)
     assert.are.same({ 2, 3 }, sign_lines(buf))
     assert.are.equal(1, comments.remove_at(buf, 3))
   end)
@@ -251,12 +251,46 @@ describe("comments", function()
     assert.are.equal(2, #comments.all())
   end)
 
-  it("clears all comments and leaves no marks behind", function()
-    local buf = file_buf({ "a", "b" })
-    add(buf, 1, 1, "one")
-    comments.clear()
+  describe("by id", function()
+    local function ids()
+      return vim.tbl_map(function(c)
+        return c.id
+      end, comments.all())
+    end
 
-    assert.are.same({}, comments.all())
-    assert.are.same({}, vim.api.nvim_buf_get_extmarks(buf, -1, 0, -1, {}))
+    it("removes exactly the named comments and their marks", function()
+      local buf = file_buf({ "a", "b", "c" })
+      add(buf, 1, 1, "one")
+      add(buf, 2, 2, "two")
+      add(buf, 3, 3, "three")
+      local before = ids()
+      comments.remove({ before[1], before[3] })
+
+      assert.are.same({ before[2] }, ids())
+      assert.are.same({ 2 }, sign_lines(buf))
+      comments.remove({ before[2] })
+      assert.are.same({}, vim.api.nvim_buf_get_extmarks(buf, -1, 0, -1, {}))
+    end)
+
+    it("replaces a comment's body", function()
+      local buf = file_buf({ "a", "b" })
+      add(buf, 1, 1, "one")
+      add(buf, 2, 2, "two")
+      comments.set_body(ids()[2], "two, revised\nwith a second line")
+
+      assert.are.same({ "one", "two, revised\nwith a second line" }, vim.tbl_map(function(c)
+        return c.body
+      end, comments.all()))
+    end)
+
+    it("locates a comment's buffer and first row, unless it is an orphan", function()
+      local buf = file_buf({ "a", "b", "c" })
+      add(buf, 2, 3, "here")
+      local id = ids()[1]
+      assert.are.same({ buf, 2 }, { comments.location(id) })
+
+      vim.api.nvim_buf_set_lines(buf, 1, 3, false, {})
+      assert.is_nil(comments.location(id))
+    end)
   end)
 end)

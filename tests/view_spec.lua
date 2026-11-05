@@ -1,4 +1,5 @@
 local comments = require("diffy.comments")
+local support = require("support")
 
 local bin = vim.fn.tempname()
 local root = vim.fn.resolve(vim.fn.tempname())
@@ -32,11 +33,7 @@ local function last_jj_call()
   return calls[#calls]
 end
 
-local function answer_input(text)
-  vim.ui.input = function(_, on_confirm)
-    on_confirm(text)
-  end
-end
+local type_body = support.type_body
 
 vim.cmd.runtime("plugin/diffy.lua")
 
@@ -44,7 +41,7 @@ describe(":Diffy", function()
   local notes
 
   before_each(function()
-    comments.clear()
+    support.reset()
     vim.cmd("silent! tabonly")
     for _, b in ipairs(vim.api.nvim_list_bufs()) do
       if vim.api.nvim_buf_get_name(b):match("^diffy://") then
@@ -52,10 +49,7 @@ describe(":Diffy", function()
       end
     end
     diff_output(sample)
-    notes = {}
-    vim.notify = function(msg, level)
-      table.insert(notes, { msg = msg, level = level })
-    end
+    notes = support.capture_notify()
   end)
 
   it("opens the working-copy diff read-only in a new tab", function()
@@ -75,8 +69,8 @@ describe(":Diffy", function()
 
   it("turns a comment in the diff into a diff comment carrying its source", function()
     vim.cmd("Diffy --from main internal")
-    answer_input("propagate?")
     vim.cmd("17DiffyComment")
+    type_body("propagate?")
 
     local c = comments.all()[1]
     assert.are.equal("diff", c.kind)
@@ -87,14 +81,13 @@ describe(":Diffy", function()
 
   it("defaults the source to the parent revision", function()
     vim.cmd("Diffy")
-    answer_input("x")
     vim.cmd("17DiffyComment")
+    type_body("x")
     assert.are.equal("@-", comments.all()[1].source)
   end)
 
   it("refuses a comment on header lines only", function()
     vim.cmd("Diffy")
-    answer_input("x")
     vim.cmd("19,24DiffyComment")
 
     assert.are.same({}, comments.all())
@@ -160,16 +153,12 @@ describe(":Diffy", function()
       return vim.list_extend(out, vim.list_slice(sample, at))
     end
 
-    local function sign_lines(buf)
-      return vim.tbl_map(function(s)
-        return s.lnum
-      end, vim.fn.sign_getplaced(buf, { group = "*" })[1].signs)
-    end
+    local sign_lines = support.sign_lines
 
     local function commented_diff()
       vim.cmd("Diffy")
-      answer_input("propagate?")
       vim.cmd("17DiffyComment")
+      type_body("propagate?")
       return vim.api.nvim_get_current_buf()
     end
 
@@ -234,8 +223,8 @@ describe(":Diffy", function()
     it("leaves another diff's comments alone", function()
       local parent = commented_diff()
       vim.cmd("Diffy --from main")
-      answer_input("on main")
       vim.cmd("17DiffyComment")
+      type_body("on main")
       diff_output(with(17, { "+\t// one" }))
       vim.cmd("edit")
 

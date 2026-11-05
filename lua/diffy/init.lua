@@ -1,6 +1,8 @@
 local comments = require("diffy.comments")
+local editor = require("diffy.editor")
 local notify = require("diffy.notify")
 local payload = require("diffy.payload")
+local review = require("diffy.review")
 local view = require("diffy.view")
 local zellij = require("diffy.zellij")
 
@@ -53,11 +55,14 @@ function M.comment(line1, line2)
   if not target then
     return notify(err, vim.log.levels.ERROR)
   end
-  vim.ui.input({ prompt = ("Comment on %s: "):format(payload.location(target.spans)) }, function(body)
-    if body and body ~= "" then
+  editor.open({
+    title = "Comment on " .. payload.location(target.spans),
+    body = "",
+    insert = true,
+    on_save = function(body)
       comments.add(buf, body, target)
-    end
-  end)
+    end,
+  })
 end
 
 function M.delete()
@@ -65,18 +70,24 @@ function M.delete()
   notify(("deleted %d comment(s)"):format(removed))
 end
 
-function M.send()
-  local all = comments.all()
-  if #all == 0 then
+---@param list diffy.Comment[]
+---@param on_sent? fun()
+function M.send(list, on_sent)
+  if #list == 0 then
     return notify("no comments to send", vim.log.levels.WARN)
   end
   with_pane(function(id)
-    local err = zellij.send(id, payload.build(all))
+    local err = zellij.send(id, payload.build(list))
     if err then
       return notify(err, vim.log.levels.ERROR)
     end
-    comments.clear()
-    notify(("sent %d comment(s)"):format(#all))
+    comments.remove(vim.tbl_map(function(c)
+      return c.id
+    end, list))
+    notify(("sent %d comment(s)"):format(#list))
+    if on_sent then
+      on_sent()
+    end
   end)
 end
 
@@ -92,6 +103,10 @@ function M.open(args)
   end
   opts.paths = args
   view.open(opts)
+end
+
+function M.review()
+  review.open({ send = M.send })
 end
 
 function M.reset_pane()
