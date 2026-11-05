@@ -40,7 +40,7 @@ function M.open(opts)
     style = "minimal",
     title = " " .. opts.title .. " ",
     title_pos = "center",
-    footer = " <CR> save · s send · q cancel ",
+    footer = " ⏎ save · s send · q cancel ",
     footer_pos = "center",
   })
   vim.wo[win].wrap = true
