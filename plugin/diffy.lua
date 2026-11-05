@@ -10,9 +10,9 @@ vim.api.nvim_create_user_command("DiffyDelete", function()
   require("diffy").delete()
 end, { desc = "Delete review comments covering the cursor line" })
 
-vim.api.nvim_create_user_command("DiffySend", function()
-  require("diffy").send(require("diffy.comments").all())
-end, { desc = "Send review comments to the Claude zellij pane" })
+vim.api.nvim_create_user_command("DiffySend", function(o)
+  require("diffy").send_pending(o.bang)
+end, { bang = true, desc = "Send the pending comment to Claude, or review several; ! sends all" })
 
 vim.api.nvim_create_user_command("DiffyReview", function()
   require("diffy").review()

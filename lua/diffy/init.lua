@@ -105,6 +105,16 @@ function M.open(args)
   view.open(opts)
 end
 
+--- Sends a lone pending comment; with several, opens the review popover to pick.
+---@param all boolean send every pending comment instead
+function M.send_pending(all)
+  local pending = comments.all()
+  if all or #pending <= 1 then
+    return M.send(pending)
+  end
+  M.review()
+end
+
 function M.review()
   review.open({ send = M.send })
 end
