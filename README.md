@@ -22,6 +22,7 @@ With [lazy.nvim](https://github.com/folke/lazy.nvim):
 ```lua
 {
   "nvengal/talk-diffy-to-me",
+  cmd = { "Diffy", "DiffyComment", "DiffyDelete", "DiffySend", "DiffyReview", "DiffyRepick" },
   keys = {
     { "<leader>v", "", desc = "+review" },
     { "<leader>vv", "<cmd>Diffy<cr>", desc = "Review jj diff" },
