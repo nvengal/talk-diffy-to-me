@@ -1,181 +1,124 @@
 # talk-diffy-to-me
 
-A TUI for leaving line-keyed review comments on the current `jj` revision
-— and on any tracked file — and shipping them into a Claude Code CLI
-session running in another zellij pane.
+A Neovim plugin for leaving line-keyed review comments on the current `jj`
+revision — and on any file — and sending them to an LLM CLI (Claude Code,
+Codex, …) running in another zellij pane.
 
-You review `jj diff --git`, press `c` on a line (or over a visual-mode
-range), type a comment, queue up a few more, then press `s` to bundle
-and paste them into the Claude pane. You can also open any tracked file
-(`o` on a diff row to jump to that file; `O` for a fuzzy picker),
-comment on arbitrary lines, search (`/`), and edit in `$EDITOR` (`e`).
+Open the diff with `:Diffy`, comment with `:DiffyComment`, and send with
+`:DiffySend`.
 
 ## Requirements
 
-- Go 1.26+ (to build)
-- [`jj`](https://github.com/jj-vcs/jj) on `PATH`
-- [`zellij`](https://zellij.dev) on `PATH`
-- Run from inside a zellij pane, in a `jj` working copy
-
-An empty diff is fine — diffy opens the file picker on launch so you
-can still leave comments on arbitrary files.
+- Neovim 0.11+
+- [`jj`](https://github.com/jj-vcs/jj) on `PATH`, with Neovim's working
+  directory inside a `jj` workspace
+- [`zellij`](https://zellij.dev) on `PATH`, with Neovim running in a zellij
+  pane and the LLM CLI running in another pane of the same tab
 
 ## Install
 
-```
-go install github.com/nvengal/talk-diffy-to-me/cmd/diffy@latest
-```
+With [lazy.nvim](https://github.com/folke/lazy.nvim):
 
-Or build from a checkout:
-
-```
-git clone https://github.com/nvengal/talk-diffy-to-me
-cd talk-diffy-to-me
-go build -o diffy ./cmd/diffy
-```
-
-## Usage
-
-Open a zellij tab with (at least) two panes: one running `claude` and one
-where you'll run `diffy`. From the diffy pane:
-
-```
-diffy
+```lua
+{
+  "nvengal/talk-diffy-to-me",
+  keys = {
+    { "<leader>v", "", desc = "+review" },
+    { "<leader>vv", "<cmd>Diffy<cr>", desc = "Review jj diff" },
+    { "<leader>vc", ":DiffyComment<cr>", mode = { "n", "x" }, desc = "Comment" },
+    { "<leader>vd", "<cmd>DiffyDelete<cr>", desc = "Delete comment" },
+    { "<leader>vs", "<cmd>DiffySend<cr>", desc = "Send comment (review if several)" },
+    { "<leader>vS", "<cmd>DiffySend!<cr>", desc = "Send all comments" },
+    { "<leader>vr", "<cmd>DiffyReview<cr>", desc = "Review pending comments" },
+    { "<leader>vp", "<cmd>DiffyRepick<cr>", desc = "Repick pane" },
+  },
+}
 ```
 
-Pass paths to narrow the diff (like `git diff path/...`):
+The keys are suggestions; the plugin itself only defines commands.
+
+## Commands
+
+| command                        | action                                                                 |
+|--------------------------------|------------------------------------------------------------------------|
+| `:Diffy [--from <rev>] [paths]`| open `jj diff --git` in a new tab, or return to it and refresh         |
+| `:[range]DiffyComment`         | comment on the current line or range, in the diff or in any file       |
+| `:DiffyDelete`                 | delete every comment covering the cursor line                          |
+| `:DiffySend`                   | send the pending comment; with several, open the review popover        |
+| `:DiffySend!`                  | send every pending comment                                             |
+| `:DiffyReview`                 | open the review popover                                                |
+| `:DiffyRepick`                 | forget the chosen zellij pane; ask again on the next send              |
+
+A `▸` in the sign column marks every line covered by a pending comment.
+
+### The diff (`:Diffy`)
+
+`:Diffy` opens the working-copy change (`jj diff --git`, i.e. `@` against
+`@-`) in a read-only `diffy://` buffer in its own tab. Paths narrow the
+diff (`:Diffy lua/diffy plugin`).
+
+Pass `--from <revset>` to review against another revision, PR-style:
 
 ```
-diffy internal/tui
-diffy internal/tui/app.go cmd/diffy/main.go
+:Diffy --from main         " whole branch vs main
+:Diffy --from @--          " last two commits
+:Diffy --from main@origin  " remote-tracking bookmark
 ```
 
-Paths are forwarded to `jj diff --git -- <paths>`; an exact file match
-or a directory prefix will do.
+This runs `jj diff --git -r '<revset>..@'` — every commit on `@`'s line
+that isn't in `<revset>`, working copy included. Pick a `<revset>` in
+`@`'s ancestry; truly divergent branches reach back to their common
+ancestor and produce a large diff.
 
-### Reviewing against another revset (`--from`)
+In the diff buffer, `gf` opens the file under the cursor at that line in
+a new tab (or the tab already showing it). Removed lines jump to their
+old-side line number.
 
-Pass `--from <revset>` to review the diff against a different revision
-instead of the parent of the current one. Useful for PR-style review:
+### Refresh and re-anchoring
 
-```
-diffy --from main         # whole branch vs main
-diffy --from @--          # last two commits
-diffy --from main@origin  # remote-tracking bookmark
-```
+`:e` in the diff buffer — or `:Diffy` with the same arguments — re-runs
+`jj diff` in place. Each diff comment is found again by the exact text
+and kind of its lines, nearest to where it was, and follows the code
+wherever it moved. If `jj` fails or reports no changes, the previous diff
+stays.
 
-Under the hood diffy runs `jj diff --git -r '<revset>..@'` — the
-combined diff of every commit on `@`'s line that isn't in `<revset>`.
-Upstream commits don't show up as deletions, anything merged in from
-`<revset>`'s line is filtered out, and the working copy is included
-automatically (no need to commit first).
+File comments do the same whenever their file is read again: `:e!`,
+`:checktime`/autoread after the file changes on disk, or reopening a
+buffer you closed.
 
-`<revset>` is any jj revset. If `<revset>` and `@` are on truly
-divergent branches the revset reaches back to their common ancestor,
-which can produce a large diff — pick a `<revset>` that's actually in
-`@`'s ancestry for PR-style review.
+### Writing comments
 
-Refresh (`r`) re-runs the diff, so it picks up new commits and bookmark
-movement. The file view (`o`/`O`) reads from the working copy as
-usual.
+`:DiffyComment` opens a small markdown float, already in insert mode.
+Bodies can span lines.
 
-`--from` cannot be combined with `--fixture`. Path arguments still
-filter (exact match or directory prefix).
+| key            | action |
+|----------------|--------|
+| `:w`, `<C-s>`  | save   |
+| `q`            | cancel |
 
-### Opening a single file (`--open`)
+A blank body saves nothing.
 
-Pass `--open <file>` to skip the diff entirely and jump straight into
-the file view for commenting. Works on any file — including ones
-outside a jj repo:
+### Review popover (`:DiffyReview`)
 
-```
-diffy --open internal/tui/app.go
-diffy --open ~/notes.md
-```
+A float listing every pending comment, with the focused one previewed
+below exactly as it will be sent.
 
-`q`/`esc` quits. `--open` cannot be combined with `--from`, `--fixture`,
-or positional path arguments.
+| key            | action                                   |
+|----------------|------------------------------------------|
+| `j`/`k`        | move through the list                    |
+| `s`            | send the focused comment                 |
+| `S`            | send all                                 |
+| `<CR>`         | edit the focused comment                 |
+| `dd`           | delete the focused comment               |
+| `gf`           | close the popover and jump to the comment|
+| `q`, `<Esc>`   | close                                    |
 
-### Diff view
+### Choosing the pane
 
-| key      | action                                                    |
-|----------|-----------------------------------------------------------|
-| `j`/`k`  | move cursor by line (skips headers)                       |
-| `J`/`K`  | jump to next / previous hunk                              |
-| `g`/`G`  | top / bottom                                              |
-| `v`      | toggle visual-mode selection (clamped to hunk)            |
-| `c`      | new comment on the current line or selection              |
-| `enter`  | edit an existing comment covering the cursor              |
-| `d`      | delete every comment covering the focused line            |
-| `s`      | open the review screen                                    |
-| `/`      | search; `n`/`N` jump next/prev; `esc` clears highlights   |
-| `o`      | open file under cursor in file view (jumps to that line)  |
-| `O`      | fuzzy file picker                                         |
-| `e`      | open file under cursor in `$EDITOR` (at the cursor line)  |
-| `r`      | refresh: re-run `jj diff --git`, re-anchor comments       |
-| `q`      | quit                                                      |
-
-A `▸` in the gutter marks any line covered by a pending comment.
-
-### File view
-
-Opened via `o`/`O` from the diff view (or auto-opened on launch when the
-diff is empty). Syntax-highlighted via
-[chroma](https://github.com/alecthomas/chroma) (nord theme).
-
-| key      | action                                                     |
-|----------|------------------------------------------------------------|
-| `j`/`k`  | move cursor by line                                        |
-| `g`/`G`  | top / bottom                                               |
-| `v`      | toggle visual-mode selection                               |
-| `c`      | new comment on the current line or selection               |
-| `enter`  | edit an existing comment covering the cursor               |
-| `d`      | delete every comment covering the focused line             |
-| `s`      | open the review screen                                     |
-| `/`      | search (Go regex, smart-case); `n`/`N` next/prev           |
-| `esc`    | clear active search; if none, leave file view              |
-| `O`      | fuzzy file picker (switches to another file)               |
-| `e`      | open current file in `$EDITOR` (at the cursor line)        |
-| `r`      | reload file from disk, re-anchor file comments             |
-| `q`      | back to diff view (or picker if launched with no diff)     |
-
-### Refresh
-
-Press `r` in the diff view to re-run `jj diff --git` (or re-read the
-fixture) and swap in the new diff. Each pending comment is re-anchored
-to the new diff by matching its snapshot of line content against hunks
-in the same file; successful matches follow the code wherever it moved.
-Comments whose anchor can't be found are flagged as `[orphan]` in the
-review list — the body and original context are preserved and still
-sendable; only the `▸` marker in the diff view is dropped.
-
-### Comment modal
-
-| key         | action         |
-|-------------|----------------|
-| `enter`     | save           |
-| `alt+enter` | insert newline |
-| `esc`       | cancel         |
-
-Opening `c` on a range that already has an exact-match comment pre-fills
-the modal so you can edit it.
-
-### Review screen
-
-| key             | action                         |
-|-----------------|--------------------------------|
-| `j`/`k`, arrows | move through the list          |
-| `s`             | send the focused comment only  |
-| `S`             | send all                       |
-| `enter`         | edit the focused comment       |
-| `d`             | delete the focused comment     |
-| `esc`, `q`      | back to the diff               |
-
-On the first send, diffy scans `zellij action list-panes` for
-candidates in the current tab, auto-picks the one whose title or command
-contains `claude` (case-insensitive) if there's exactly one, and
-otherwise opens a picker. The resolved pane id is cached for the rest of
-the session.
+On the first send, diffy lists the other panes in its zellij tab and asks
+which one to send to. If exactly one has `claude` in its title or command
+(case-insensitive), it is picked without asking. The choice is remembered
+until `:DiffyRepick`.
 
 ## Message format
 
@@ -187,14 +130,13 @@ The following are review comments. Respond to questions within this conversation
 Diff from: <ref>
 ```
 
-The `Diff from:` line is the "from" side of the diff — the revset passed
-via `--from` (verbatim), or `@-` in default mode (the parent of the
-working-copy revision). The "to" side is the working copy (`@`).
+`Diff from:` names the "from" side of each diff the comments came from —
+the `--from` revset verbatim, or `@-` by default, plus any path filter.
+It is omitted when every comment is on a file.
 
-Followed by one `## path:lines` section per comment, with the comment
-body, then a fenced block showing the selected lines. Diff-anchored
-comments use a ```diff block (preserving `+`/`-` prefixes); file-anchored
-comments use a plain ``` block (verbatim file lines):
+Then one `## path:lines` section per comment: the body, then a fenced
+block of the selected lines. Diff comments use a ```diff block (keeping
+`+`/`-` prefixes); file comments use a plain ``` block:
 
 ~~~
 ## greeting.go:10
@@ -205,17 +147,7 @@ why return nil here? could we propagate?
 +	return nil
 ```
 
-## math.go:6-8
-
-guard could be a sentinel error var
-
-```diff
-+	if b == 0 {
-+		return 0, errors.New("div by zero")
-+	}
-```
-
-## internal/tui/app.go:42
+## internal/app.go:42
 
 this probably wants a mutex
 
@@ -224,29 +156,20 @@ this probably wants a mutex
 ```
 ~~~
 
-For diff comments, line numbers prefer the new-file side, falling back to
-the old-file side for `-` lines. File comments use absolute line numbers.
+Diff line numbers prefer the new side, falling back to the old side for
+`-` lines. Paths are relative to the `jj` workspace root; a file outside
+it is named by its full path.
 
-## Dev flags
+## Development
 
-Hidden from `--help`:
-
-- `--fixture <path>` — read the diff from a file instead of invoking `jj`
-- `--dry-run` — print the bundled payload to stdout instead of invoking
-  `zellij`
-
-Example:
+Tests use [plenary.nvim](https://github.com/nvim-lua/plenary.nvim)'s
+busted runner. With plenary installed by lazy.nvim (or `PLENARY_DIR`
+pointing at a checkout), from the repo root:
 
 ```
-diffy --fixture fixtures/sample.diff --dry-run
+nvim --headless --noplugin -u tests/minimal_init.lua \
+  -c "PlenaryBustedDirectory tests/ {minimal_init='tests/minimal_init.lua', sequential=true}"
 ```
 
-## Scope
-
-- In: parsing `jj diff --git`, diff-review TUI with single-line and
-  multi-line comments, opening arbitrary `jj`-tracked files for
-  commenting (with fuzzy picker, search, syntax highlighting, and
-  `$EDITOR` integration), review screen, paste-injection into a zellij
-  pane.
-- Out: chat UI, session state, persistence across runs, non-zellij
-  multiplexers.
+`jj` and `zellij` are faked on `PATH` by the tests; neither is needed to
+run them.
