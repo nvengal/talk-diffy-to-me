@@ -26,6 +26,7 @@ function M.open(opts)
   vim.bo[buf].buftype = "acwrite"
   vim.bo[buf].bufhidden = "wipe"
   vim.bo[buf].filetype = "markdown"
+  vim.b[buf].completion = false
 
   local width = math.min(80, vim.o.columns - 4)
   local height = math.min(math.max(6, #lines + 2), vim.o.lines - 4)

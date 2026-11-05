@@ -44,6 +44,14 @@ describe("commands", function()
     keys("<Esc>q")
   end)
 
+  it(":DiffyComment's float tells completion plugins to stay quiet", function()
+    file_buf({ "a" })
+    keys(":DiffyComment<CR>")
+
+    assert.is_false(vim.b.completion)
+    keys("<Esc>q")
+  end)
+
   it(":DiffyComment saves a multi-line body without trailing blank lines and closes the float", function()
     file_buf({ "a" })
     vim.cmd("DiffyComment")
