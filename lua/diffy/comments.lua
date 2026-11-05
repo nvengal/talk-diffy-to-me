@@ -239,6 +239,18 @@ function M.find(buf, first, last)
   end
 end
 
+---@param buf integer
+---@param lnum integer 1-based buffer row
+---@return diffy.Comment? the first comment covering the row
+function M.at(buf, lnum)
+  for _, e in ipairs(entries) do
+    local c = record(e)
+    if e.buf == buf and not c.orphan and covers(e, lnum) then
+      return c
+    end
+  end
+end
+
 ---@param id integer
 ---@param body string
 function M.set_body(id, body)

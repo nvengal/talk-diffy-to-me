@@ -131,9 +131,20 @@ local function create(opts, source)
       views[buf] = nil
     end,
   })
-  vim.keymap.set("n", "gf", function()
+  local function map(mode, lhs, rhs, desc)
+    vim.keymap.set(mode, lhs, rhs, { buffer = buf, nowait = true, desc = desc })
+  end
+  map("n", "gf", function()
     M.jump(buf, vim.fn.line("."))
-  end, { buffer = buf, desc = "Open file at this line" })
+  end, "Open file at this line")
+  map("n", "c", "<cmd>DiffyComment<cr>", "Comment on this line")
+  map("x", "c", ":DiffyComment<cr>", "Comment on the selection")
+  map("n", "<CR>", "<cmd>DiffyEdit<cr>", "Edit the comment under the cursor")
+  map("n", "dd", "<cmd>DiffyDelete<cr>", "Delete comments on this line")
+  map("n", "s", "<cmd>DiffySend<cr>", "Send comment (review if several)")
+  map("n", "S", "<cmd>DiffySend!<cr>", "Send all comments")
+  map("n", "r", "<cmd>edit<cr>", "Refresh the diff")
+  map("n", "gr", "<cmd>DiffyReview<cr>", "Review pending comments")
   return buf
 end
 

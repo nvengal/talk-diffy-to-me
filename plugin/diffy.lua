@@ -6,6 +6,10 @@ vim.api.nvim_create_user_command("DiffyComment", function(o)
   require("diffy").comment(o.line1, o.line2)
 end, { range = true, desc = "Comment on the current line or range" })
 
+vim.api.nvim_create_user_command("DiffyEdit", function()
+  require("diffy").edit()
+end, { desc = "Edit the review comment under the cursor" })
+
 vim.api.nvim_create_user_command("DiffyDelete", function()
   require("diffy").delete()
 end, { desc = "Delete review comments covering the cursor line" })

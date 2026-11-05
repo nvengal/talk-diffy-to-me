@@ -22,7 +22,7 @@ With [lazy.nvim](https://github.com/folke/lazy.nvim):
 ```lua
 {
   "nvengal/talk-diffy-to-me",
-  cmd = { "Diffy", "DiffyComment", "DiffyDelete", "DiffySend", "DiffyReview", "DiffyRepick" },
+  cmd = { "Diffy", "DiffyComment", "DiffyEdit", "DiffyDelete", "DiffySend", "DiffyReview", "DiffyRepick" },
   keys = {
     { "<leader>v", "", desc = "+review" },
     { "<leader>vv", "<cmd>Diffy<cr>", desc = "Review jj diff" },
@@ -44,6 +44,7 @@ The keys are suggestions; the plugin itself only defines commands.
 |--------------------------------|------------------------------------------------------------------------|
 | `:Diffy [--from <rev>] [paths]`| open `jj diff --git` in a new tab, or return to it and refresh         |
 | `:[range]DiffyComment`         | comment on the current line or range, in the diff or in any file       |
+| `:DiffyEdit`                   | edit the comment under the cursor                                      |
 | `:DiffyDelete`                 | delete every comment covering the cursor line                          |
 | `:DiffySend`                   | send the pending comment; with several, open the review popover        |
 | `:DiffySend!`                  | send every pending comment                                             |
@@ -71,9 +72,18 @@ that isn't in `<revset>`, working copy included. Pick a `<revset>` in
 `@`'s ancestry; truly divergent branches reach back to their common
 ancestor and produce a large diff.
 
-In the diff buffer, `gf` opens the file under the cursor at that line in
-a new tab (or the tab already showing it). Removed lines jump to their
-old-side line number.
+The diff buffer has its own keys:
+
+| key     | action                                                        |
+|---------|---------------------------------------------------------------|
+| `c`     | comment on the line, or on the visual selection               |
+| `<CR>`  | edit the comment under the cursor                             |
+| `dd`    | delete the comments on the line                               |
+| `s`     | send the pending comment; with several, open the review popover|
+| `S`     | send every pending comment                                    |
+| `r`     | refresh (same as `:e`)                                        |
+| `gr`    | open the review popover                                       |
+| `gf`    | open the file at this line, in a new tab or the one showing it |
 
 ### Refresh and re-anchoring
 

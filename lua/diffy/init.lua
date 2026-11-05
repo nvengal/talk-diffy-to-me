@@ -69,6 +69,14 @@ function M.comment(line1, line2)
   })
 end
 
+function M.edit()
+  local c = comments.at(vim.api.nvim_get_current_buf(), vim.fn.line("."))
+  if not c then
+    return notify("no comment on this line", vim.log.levels.WARN)
+  end
+  editor.edit(c)
+end
+
 function M.delete()
   local removed = comments.remove_at(vim.api.nvim_get_current_buf(), vim.fn.line("."))
   notify(("deleted %d comment(s)"):format(removed))
