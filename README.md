@@ -67,10 +67,10 @@ Pass `--from <revset>` to review against another revision, PR-style:
 :Diffy --from main@origin  " remote-tracking bookmark
 ```
 
-This runs `jj diff --git -r '<revset>..@'` — every commit on `@`'s line
-that isn't in `<revset>`, working copy included. Pick a `<revset>` in
-`@`'s ancestry; truly divergent branches reach back to their common
-ancestor and produce a large diff.
+This runs `jj diff --git --from 'fork_point((<revset>) | @)'`: `@`
+against where it forked from `<revset>`, like a pull request. Changes that
+landed on `<revset>` since the fork are left out, and branches that merged
+`<revset>` back in diff against the merged commit.
 
 The diff buffer has its own keys:
 

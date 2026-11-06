@@ -80,7 +80,7 @@ describe(":Diffy", function()
 
   it("reviews against --from and narrows to paths", function()
     vim.cmd("Diffy --from main internal cmd")
-    assert.are.equal("diff --git -r main..@ -- internal cmd", last_jj_call())
+    assert.are.equal("diff --git --from fork_point((main) | @) -- internal cmd", last_jj_call())
   end)
 
   it("turns a comment in the diff into a diff comment carrying its source", function()

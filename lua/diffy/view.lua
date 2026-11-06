@@ -37,7 +37,7 @@ end
 local function load(opts)
   local cmd = { "jj", "diff", "--git" }
   if opts.from then
-    vim.list_extend(cmd, { "-r", opts.from .. "..@" })
+    vim.list_extend(cmd, { "--from", ("fork_point((%s) | @)"):format(opts.from) })
   end
   if #opts.paths > 0 then
     table.insert(cmd, "--")
