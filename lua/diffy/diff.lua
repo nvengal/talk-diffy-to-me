@@ -55,6 +55,31 @@ function M.parse(lines)
   return rows
 end
 
+---@class diffy.File
+---@field path string
+---@field first integer 1-based row of its "diff --git" header
+---@field last integer
+---@field added integer
+---@field removed integer
+
+---@param rows diffy.Row[]
+---@return diffy.File[] in diff order
+function M.files(rows)
+  local files = {}
+  for i, r in ipairs(rows) do
+    if r.kind == "" and vim.startswith(r.text, "diff --git ") then
+      table.insert(files, { path = r.path, first = i, last = i, added = 0, removed = 0 })
+    end
+    local f = files[#files]
+    if f then
+      f.last = i
+      f.added = f.added + (r.kind == "+" and 1 or 0)
+      f.removed = f.removed + (r.kind == "-" and 1 or 0)
+    end
+  end
+  return files
+end
+
 ---@param rows diffy.Row[]
 ---@param first integer 1-based row, inclusive
 ---@param last integer

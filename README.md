@@ -84,6 +84,7 @@ The diff buffer has its own keys:
 | `r`     | refresh (same as `:e`)                                        |
 | `gr`    | open the review popover                                       |
 | `gf`    | open the file at this line, in a new tab or the one showing it |
+| `T`     | toggle the file tree                                          |
 
 ### Refresh and re-anchoring
 

@@ -40,7 +40,7 @@ describe("keys in the diff buffer", function()
     zellij.panes({ zellij.pane(1, "nvim"), zellij.pane(2, "claude") })
     vim.cmd("silent! tabonly")
     for _, b in ipairs(vim.api.nvim_list_bufs()) do
-      if vim.api.nvim_buf_get_name(b):match("^diffy://") then
+      if vim.api.nvim_buf_is_valid(b) and vim.api.nvim_buf_get_name(b):match("^diffy://") then
         vim.api.nvim_buf_delete(b, { force = true })
       end
     end

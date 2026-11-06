@@ -102,6 +102,7 @@ local function render(buf)
       end
     end
   end
+  vim.api.nvim_exec_autocmds("User", { pattern = "DiffyComments", data = { buf = buf } })
 end
 
 ---@param buf integer
